@@ -1,11 +1,96 @@
 import { dbService } from "./db.service";
 import { aiService } from "./ai.service";
 import { audioInterviewPrompts } from "../prompts/audio-interview.prompt";
-import type { InterviewContext, AudioInterviewSession, AudioInterviewSettings, AIQuestion, AIInterviewReport } from "../types";
+import { fallbackBlueprint } from "./offline-fallbacks";
+import {
+  scoreAnswerLocally,
+  buildVerbalInterviewReport,
+} from "./report-engine";
+import type {
+  InterviewContext,
+  AudioInterviewSession,
+  AudioInterviewSettings,
+  AIQuestion,
+  InterviewBlueprint,
+} from "../types";
+
+export function getAudioTargetQuestionCount(duration: number): number {
+  if (duration === 5) return 5;
+  if (duration === 10) return 10;
+  if (duration === 20) return 15;
+  if (duration === 30) return 20;
+  return 10;
+}
+
+function buildFallbackAudioQuestions(
+  blueprint: InterviewBlueprint,
+  settings: AudioInterviewSettings,
+  count: number
+): string[] {
+  const role = blueprint.role || "Software Engineer";
+  const skills = blueprint.skills.length > 0 ? blueprint.skills : ["JavaScript", "React", "Node.js"];
+  const bank: string[] = [
+    `Hello, welcome to your audio mock interview for the ${role} position. Let's start with a core concept. Can you explain your experience with ${skills[0]} and how you typically apply it in your projects?`,
+    `Great. Walk me through how you would design a reusable module using ${skills[1 % skills.length]} in a production application.`,
+    `How do you handle asynchronous operations in JavaScript? Compare callbacks, promises, and async/await with a practical example.`,
+    `Tell me about a challenging bug you faced with ${skills[2 % skills.length]}. How did you diagnose and resolve it?`,
+    `Explain the difference between SQL and NoSQL databases. When would you choose one over the other?`,
+    `How would you optimize the performance of a slow frontend application? Mention specific techniques you have used.`,
+    `Describe how authentication and authorization typically work in a Node.js API. What security practices do you follow?`,
+    `Walk me through how you would design a REST API for a job board. Which endpoints would you create and why?`,
+    `Tell me about a project you are proud of. What was your role, the tech stack, and the hardest technical decision you made?`,
+    `How do you stay up to date with new technologies, and what would you want to learn next?`,
+    `Explain the difference between horizontal and vertical scaling, with an example from a system you know.`,
+    `What is the event loop in Node.js, and how does it affect writing non-blocking code?`,
+    `How would you approach debugging a production memory leak?`,
+    `Describe a time you disagreed with a teammate on a technical decision. How did you resolve it?`,
+    `What caching strategies have you used, and when would you choose Redis versus in-memory caching?`,
+    `Explain idempotency in APIs and why it matters for payment or write endpoints.`,
+    `How do you structure error handling across a large TypeScript codebase?`,
+    `What trade-offs do you consider when choosing between monolith and microservices?`,
+    `Walk me through your approach to writing meaningful unit and integration tests.`,
+    `Finally, what questions would you ask your interviewer about the role or team?`,
+  ];
+
+  if (settings.practiceMode === "HR Round") {
+    return Array.from({ length: count }, (_, i) =>
+      [
+        `Hello and welcome. Tell me about yourself and why you are interested in the ${role} role.`,
+        `Where do you see yourself in five years?`,
+        `Describe a conflict at work and how you handled it.`,
+        `What motivates you in a team environment?`,
+        `Why should we hire you for this position?`,
+        `How do you handle tight deadlines and pressure?`,
+        `What is your preferred work culture?`,
+        `Tell me about a time you failed and what you learned.`,
+        `How do you prioritize tasks when everything feels urgent?`,
+        `Do you have any questions for us?`,
+      ][i % 10]
+    );
+  }
+
+  return Array.from({ length: count }, (_, i) => bank[i % bank.length]);
+}
+
+function evaluateAnswerLocal(answerText: string) {
+  return scoreAnswerLocally(answerText);
+}
+
+async function completeAudioSession(session: AudioInterviewSession): Promise<void> {
+  session.questions = session.questions.filter(
+    (q) => q.answerText != null || q.evaluation != null
+  );
+
+  const built = await buildVerbalInterviewReport(session, "audio");
+  session.status = "completed";
+  session.evaluation = built.evaluation;
+  session.report = built.report;
+  session.timeline = built.report.timeline || session.timeline;
+}
 
 export const audioInterviewService = {
   /**
-   * Start a new Audio Interview session
+   * Start a new Audio Interview session with ALL questions pre-generated.
    */
   async startSession(
     userId: string,
@@ -13,49 +98,56 @@ export const audioInterviewService = {
     settings: AudioInterviewSettings
   ): Promise<AudioInterviewSession> {
     const sessionId = "audio-session-" + Math.random().toString(36).substring(2, 11);
+    const targetCount = getAudioTargetQuestionCount(settings.duration);
 
-    // 1. Generate candidate profile blueprint
-    const blueprint = await aiService.generateBlueprint(context);
+    const blueprint = await aiService
+      .generateBlueprint(context)
+      .catch(() => fallbackBlueprint(context));
 
-    // 2. Generate the first question
-    const prompt = audioInterviewPrompts.getAudioQuestionPrompt(blueprint, settings, []);
-
-    const fallbackQuestion = () => {
-      const role = blueprint.role || "Software Engineer";
-      const skill = blueprint.skills[0] || "React";
-      return {
-        questionText: `Welcome to your voice mock interview for the ${role} position. Let's start with a core concept. Can you explain your experience with ${skill} and how you typically apply it in your projects?`
-      };
-    };
-
-    const firstQuestionObj = await aiService.generateJSON<{ questionText: string }>(
-      prompt,
-      fallbackQuestion
+    const batchPrompt = audioInterviewPrompts.getAudioBatchQuestionsPrompt(
+      blueprint,
+      settings,
+      targetCount
     );
 
-    const firstQuestion: AIQuestion = {
-      id: "q-1",
-      questionText: firstQuestionObj.questionText,
-      evaluation: null
-    };
+    const batch = await aiService.generateJSON<{ questions: string[] }>(batchPrompt, () => ({
+      questions: buildFallbackAudioQuestions(blueprint, settings, targetCount),
+    }));
 
-    // 3. Initialize Audio Session
+    const texts = (batch.questions || [])
+      .map((q) => (typeof q === "string" ? q.trim() : ""))
+      .filter(Boolean);
+
+    const fallbacks = buildFallbackAudioQuestions(blueprint, settings, targetCount);
+    while (texts.length < targetCount) {
+      texts.push(fallbacks[texts.length % fallbacks.length]);
+    }
+
+    const questions: AIQuestion[] = texts.slice(0, targetCount).map((questionText, i) => ({
+      id: `q-${i + 1}`,
+      questionText,
+      evaluation: null,
+    }));
+
     const session: AudioInterviewSession = {
       id: sessionId,
       userId,
       blueprint,
       settings,
-      status: "in_progress", // start straight in progress once permissions checked
+      status: "in_progress",
       currentQuestionIndex: 0,
-      questions: [firstQuestion],
+      questions,
       violations: [],
       timeline: [
-        { timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), label: "Introduction" }
+        {
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          label: "Introduction",
+        },
       ],
       evaluation: null,
       report: null,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     await dbService.saveAudioSession(session);
@@ -63,7 +155,7 @@ export const audioInterviewService = {
   },
 
   /**
-   * Submit answer, evaluate, and fetch next question or construct final report
+   * Submit answer and advance to the next preloaded question (no live question generation).
    */
   async submitAnswer(
     sessionId: string,
@@ -77,219 +169,46 @@ export const audioInterviewService = {
       throw new Error("Audio Session not found.");
     }
 
-    // Locate the current question and store candidate response
-    const currentQuestionIndex = session.questions.findIndex(q => q.id === questionId);
+    const currentQuestionIndex = session.questions.findIndex((q) => q.id === questionId);
     if (currentQuestionIndex === -1) {
       throw new Error("Question not found in session.");
     }
 
-    session.questions[currentQuestionIndex].answerText = answerText || "(No verbal response provided)";
+    session.questions[currentQuestionIndex].answerText =
+      answerText || "(No verbal response provided)";
 
-    // Update violations (if any, though audio interview has minimal proctoring)
     if (violations && violations.length > 0) {
       session.violations = [...session.violations, ...violations];
     }
 
-    // 1. Evaluate the answer
-    const questionText = session.questions[currentQuestionIndex].questionText;
-    const evalPrompt = audioInterviewPrompts.getAudioAnswerEvaluationPrompt(questionText, answerText);
+    // Instant local scoring — no GPT call mid-interview so the live flow stays smooth
+    session.questions[currentQuestionIndex].evaluation = evaluateAnswerLocal(
+      answerText || ""
+    );
 
-    const fallbackEvaluation = () => {
-      const length = answerText.trim().length;
-      let score = 60;
-      let rating = 6;
-      let feedback = "Your voice answer was received, but could benefit from more detailed technical elaboration.";
+    const nextIndex = currentQuestionIndex + 1;
+    const isLast = nextIndex >= session.questions.length;
 
-      if (length > 120) {
-        score = 85;
-        rating = 8;
-        feedback = "Excellent verbal response with appropriate terminology and professional vocabulary.";
-      } else if (length > 50) {
-        score = 75;
-        rating = 7;
-        feedback = "Clear conceptual explanation. Adding a practical engineering example would strengthen your answer.";
-      }
-
-      return {
-        technicalAccuracy: rating,
-        communication: Math.min(10, rating + 1),
-        problemSolving: rating,
-        confidence: Math.min(10, rating + 1),
-        completeness: rating,
-        practicalKnowledge: rating,
-        feedback,
-        score
-      };
-    };
-
-    const evaluationObj = await aiService.generateJSON<{
-      technicalAccuracy: number;
-      communication: number;
-      problemSolving: number;
-      confidence: number;
-      completeness: number;
-      practicalKnowledge: number;
-      feedback: string;
-      score: number;
-    }>(evalPrompt, fallbackEvaluation);
-
-    session.questions[currentQuestionIndex].evaluation = evaluationObj;
-
-    const totalQuestionsAsked = session.questions.length;
-
-    // Define target question count based on configured duration
-    let targetCount = 10;
-    if (session.settings.duration === 5) targetCount = 5;
-    else if (session.settings.duration === 10) targetCount = 10;
-    else if (session.settings.duration === 20) targetCount = 15;
-    else if (session.settings.duration === 30) targetCount = 20;
-
-    if (totalQuestionsAsked >= targetCount || endInterview) {
-      session.status = "completed";
-
-      // Calculate aggregate scores
-      let sumOverall = 0;
-      let sumTech = 0;
-      let sumComm = 0;
-      let sumSolve = 0;
-      let sumConf = 0;
-      let evaluatedCount = 0;
-
-      session.questions.forEach(q => {
-        if (q.evaluation) {
-          sumOverall += q.evaluation.score;
-          sumTech += q.evaluation.technicalAccuracy;
-          sumComm += q.evaluation.communication;
-          sumSolve += q.evaluation.problemSolving;
-          sumConf += q.evaluation.confidence;
-          evaluatedCount++;
-        }
-      });
-
-      const denominator = evaluatedCount > 0 ? evaluatedCount : 1;
-      session.evaluation = {
-        overallScore: Math.round(sumOverall / denominator),
-        technicalScore: Math.round((sumTech / denominator) * 10),
-        communicationScore: Math.round((sumComm / denominator) * 10),
-        problemSolvingScore: Math.round((sumSolve / denominator) * 10),
-        confidenceScore: Math.round((sumConf / denominator) * 10),
-        passed: (sumOverall / denominator) >= 50
-      };
-
-      // Generate report using Gemini
-      const reportPrompt = audioInterviewPrompts.getAudioReportPrompt(session);
-
-      const fallbackReport = (): AIInterviewReport => {
-        const evalData = session.evaluation!;
-        const durationMins = Math.round((Date.now() - new Date(session.createdAt).getTime()) / 60000);
-
-        const qFeedback = session.questions.map(q => ({
-          question: q.questionText,
-          answer: q.answerText || "(Skipped)",
-          score: q.evaluation?.score || 0,
-          feedback: q.evaluation?.feedback || "",
-          metrics: {
-            accuracy: q.evaluation?.technicalAccuracy || 0,
-            communication: q.evaluation?.communication || 0,
-            problemSolving: q.evaluation?.problemSolving || 0,
-            confidence: q.evaluation?.confidence || 0
-          }
-        }));
-
-        const transcriptLogs = session.questions.flatMap((q, idx) => [
-          { speaker: "AI" as const, text: q.questionText, timestamp: `${idx * 2}:00` },
-          { speaker: "Candidate" as const, text: q.answerText || "(Skipped)", timestamp: `${idx * 2 + 1}:10` }
-        ]);
-
-        return {
-          candidateSummary: {
-            overallScore: evalData.overallScore,
-            technicalScore: evalData.technicalScore,
-            communicationScore: evalData.communicationScore,
-            problemSolvingScore: evalData.problemSolvingScore,
-            confidenceScore: evalData.confidenceScore,
-            duration: `${durationMins}:30`
-          },
-          questionFeedback: qFeedback,
-          strengths: [
-            "Clear and articulate vocal delivery.",
-            "Demonstrated firm grasp of foundational programming design patterns.",
-            "Responded calmly and structurally under mock scenario constraints."
-          ],
-          weaknesses: [
-            "Could expand vocabulary depth when describing system-level scale.",
-            "Omitted key garbage collection or memory cleanup steps in verbal explanations."
-          ],
-          recommendations: [
-            "Use standard terminology when describing database scaling operations.",
-            "Practice the STAR technique for behavioral conflict-resolution scenarios.",
-            "Explain project trade-offs explicitly from the start."
-          ],
-          transcript: transcriptLogs,
-          timeline: [
-            { timestamp: "00:00", label: "Introduction" },
-            { timestamp: "02:00", label: "Voice Setup & Testing" },
-            { timestamp: "05:00", label: "Technical QA Round" },
-            { timestamp: "10:00", label: "Interview Concluded" }
-          ],
-          proctoringSummary: {
-            tabSwitches: 0,
-            fullscreenExits: 0,
-            screenShareInterruptions: 0,
-            status: "Clean"
-          }
-        };
-      };
-
-      const finalReport = await aiService.generateJSON<AIInterviewReport>(
-        reportPrompt,
-        fallbackReport
-      );
-
-      session.report = finalReport;
-      session.timeline = finalReport.timeline || session.timeline;
-
+    if (endInterview || isLast) {
+      await completeAudioSession(session);
     } else {
-      // Generate the next question
-      const nextPrompt = audioInterviewPrompts.getAudioQuestionPrompt(session.blueprint, session.settings, session.questions);
+      session.currentQuestionIndex = nextIndex;
 
-      const fallbackNextQuestion = () => {
-        const nextIdx = totalQuestionsAsked + 1;
-        const skill = session.blueprint.skills[nextIdx % session.blueprint.skills.length] || "Architecture";
-        return {
-          questionText: `Got it. Let's move on to the next topic: ${skill}. Can you tell me about the core differences between standard paradigms and alternatives in ${skill}?`
-        };
-      };
-
-      const nextQuestionObj = await aiService.generateJSON<{ questionText: string }>(
-        nextPrompt,
-        fallbackNextQuestion
-      );
-
-      const nextQuestion: AIQuestion = {
-        id: `q-${totalQuestionsAsked + 1}`,
-        questionText: nextQuestionObj.questionText,
-        evaluation: null
-      };
-
-      session.questions.push(nextQuestion);
-      session.currentQuestionIndex = totalQuestionsAsked;
-
-      // Add timeline checkmarks at transition thresholds
-      if (totalQuestionsAsked === Math.floor(targetCount / 4)) {
+      const total = session.questions.length;
+      if (nextIndex === Math.floor(total / 4)) {
         session.timeline.push({
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          label: "Core Technical Concepts"
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          label: "Core Technical Concepts",
         });
-      } else if (totalQuestionsAsked === Math.floor(targetCount / 2)) {
+      } else if (nextIndex === Math.floor(total / 2)) {
         session.timeline.push({
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          label: "Detailed Engineering Deep-Dive"
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          label: "Detailed Engineering Deep-Dive",
         });
-      } else if (totalQuestionsAsked === Math.floor((3 * targetCount) / 4)) {
+      } else if (nextIndex === Math.floor((3 * total) / 4)) {
         session.timeline.push({
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          label: "Behavioral & Applied Scenarios"
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          label: "Behavioral & Applied Scenarios",
         });
       }
     }
@@ -297,5 +216,5 @@ export const audioInterviewService = {
     session.updatedAt = new Date().toISOString();
     await dbService.saveAudioSession(session);
     return session;
-  }
+  },
 };

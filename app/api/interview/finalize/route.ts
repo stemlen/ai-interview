@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { dbService } from "@/src/services/db.service";
+import { buildFullInterviewNarrative } from "@/src/services/report-engine";
 import type {
   AIInterviewReport,
   InterviewSession,
@@ -408,17 +409,33 @@ export async function POST(req: Request) {
       scores.length > 0
         ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
         : 0;
+    const passed = overallScore >= 55;
 
     const technicalScore = Math.round(
       ((oaSess?.evaluation?.codingScore || 0) + (aiSess?.evaluation?.technicalScore || 0)) /
         (oaSess && aiSess ? 2 : 1) || overallScore
     );
-    const communicationScore = aiSess?.evaluation?.communicationScore || overallScore;
+    const communicationScore = aiSess?.evaluation?.communicationScore ?? 0;
     const problemSolvingScore = Math.round(
       ((oaSess?.evaluation?.codingScore || 0) + (aiSess?.evaluation?.problemSolvingScore || 0)) /
         (oaSess && aiSess ? 2 : 1) || overallScore
     );
-    const confidenceScore = aiSess?.evaluation?.confidenceScore || overallScore;
+    const confidenceScore = aiSess?.evaluation?.confidenceScore ?? 0;
+
+    const narrative = await buildFullInterviewNarrative({
+      role: session.blueprint.role,
+      overallScore,
+      passed,
+      oaScore,
+      aiScore,
+      roundNotes: roundSummaries
+        .map((r) => `${r.name}: score=${r.score}, attempted=${r.attempted}`)
+        .join("\n"),
+    });
+
+    strengths.push(...narrative.strengths);
+    weaknesses.push(...narrative.weaknesses);
+    recommendations.push(...narrative.recommendations);
 
     const uniq = (arr: string[]) => [...new Set(arr.filter(Boolean))];
 
@@ -465,7 +482,7 @@ export async function POST(req: Request) {
             ? `AI Interview completed — overall ${aiScore ?? 0}%`
             : "AI Interview incomplete",
         },
-        { timestamp: "End", label: "Detailed master report generated" },
+        { timestamp: "End", label: narrative.executiveSummary || "Master report generated" },
       ],
       proctoringSummary: {
         tabSwitches,
@@ -478,7 +495,7 @@ export async function POST(req: Request) {
     };
 
     if (masterReport.strengths.length === 0) {
-      masterReport.strengths.push("Started the end-to-end interview process.");
+      masterReport.strengths.push("No material strengths identified across completed rounds.");
     }
     if (masterReport.weaknesses.length === 0) {
       masterReport.weaknesses.push("Keep building depth across written and verbal rounds.");
@@ -488,7 +505,7 @@ export async function POST(req: Request) {
     session.currentRound = "completed";
     session.evaluation = {
       overallScore,
-      passed: overallScore >= 50,
+      passed,
     };
     session.report = masterReport;
     session.updatedAt = new Date().toISOString();

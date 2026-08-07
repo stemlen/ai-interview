@@ -60,12 +60,15 @@ import type {
   AIQuestion,
   AIInterviewReport
 } from "@/src/types";
+import { InterviewReportView } from "@/src/components/Report/InterviewReportView";
+import { formatToUnifiedReport } from "@/src/lib/reportFormatter";
 
 type ViewState =
   | "config"
   | "setup"
   | "settings"
   | "permissions"
+  | "generating"
   | "countdown"
   | "in_progress"
   | "completed"
@@ -790,23 +793,13 @@ export default function AudioRoundPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Launch Session initialization
+  // Pre-generate all questions, then countdown, then start live interview
   const startAudioSession = async () => {
     if (!context || !user) return;
 
     try {
       setIsGenerating(true);
-      setView("countdown");
-
-      let count = 5;
-      setCountdown(count);
-      const timer = setInterval(() => {
-        count--;
-        setCountdown(count);
-        if (count <= 0) {
-          clearInterval(timer);
-        }
-      }, 1000);
+      setView("generating");
 
       const res = await fetch("/api/audio-interview/start", {
         method: "POST",
@@ -825,22 +818,34 @@ export default function AudioRoundPage() {
       setSession(data.session);
       setCurrentQuestion(data.session.questions[0]);
       localStorage.setItem("active_audio_session_id", data.sessionId);
+      setIsGenerating(false);
 
-      setTimeout(() => {
-        setView("in_progress");
-        shouldRecognitionRunRef.current = true;
-        startMicStream();
-        setTimeout(() => {
-          if (data.session.questions[0]) {
-            speakQuestion(data.session.questions[0].questionText);
+      // Short get-ready countdown — questions are already loaded
+      setView("countdown");
+      let count = 5;
+      setCountdown(count);
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          count--;
+          setCountdown(count);
+          if (count <= 0) {
+            clearInterval(timer);
+            resolve();
           }
         }, 1000);
-      }, 5000);
+      });
 
+      setView("in_progress");
+      shouldRecognitionRunRef.current = true;
+      startMicStream();
+      setTimeout(() => {
+        if (data.session.questions[0]) {
+          speakQuestion(data.session.questions[0].questionText);
+        }
+      }, 1000);
     } catch (err: any) {
       toast.error(err.message || "Failed to start interview.");
-      setView("setup");
-    } finally {
+      setView("permissions");
       setIsGenerating(false);
     }
   };
@@ -931,7 +936,7 @@ export default function AudioRoundPage() {
           if (nextQ) {
             speakQuestion(nextQ.questionText);
           }
-        }, 3000);
+        }, 600);
       }
     } catch (err: any) {
       toast.error("Failed to proceed: " + err.message);
@@ -1105,14 +1110,7 @@ export default function AudioRoundPage() {
       };
       setSettings(miniSettings);
 
-      setView("countdown");
-      let count = 5;
-      setCountdown(count);
-      const timer = setInterval(() => {
-        count--;
-        setCountdown(count);
-        if (count <= 0) clearInterval(timer);
-      }, 1000);
+      setView("generating");
 
       const res = await fetch("/api/audio-interview/start", {
         method: "POST",
@@ -1131,22 +1129,33 @@ export default function AudioRoundPage() {
       setSession(data.session);
       setCurrentQuestion(data.session.questions[0]);
       localStorage.setItem("active_audio_session_id", data.sessionId);
+      setIsGenerating(false);
 
-      setTimeout(() => {
-        setView("in_progress");
-        shouldRecognitionRunRef.current = true;
-        startMicStream();
-        setTimeout(() => {
-          if (data.session.questions[0]) {
-            speakQuestion(data.session.questions[0].questionText);
+      setView("countdown");
+      let count = 5;
+      setCountdown(count);
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          count--;
+          setCountdown(count);
+          if (count <= 0) {
+            clearInterval(timer);
+            resolve();
           }
         }, 1000);
-      }, 5000);
+      });
 
+      setView("in_progress");
+      shouldRecognitionRunRef.current = true;
+      startMicStream();
+      setTimeout(() => {
+        if (data.session.questions[0]) {
+          speakQuestion(data.session.questions[0].questionText);
+        }
+      }, 1000);
     } catch (err: any) {
       toast.error("Failed to start practice round: " + err.message);
       setView("results");
-    } finally {
       setIsGenerating(false);
     }
   };
@@ -1189,7 +1198,7 @@ export default function AudioRoundPage() {
           <div>
             <h1 className="text-2xl font-bold text-[#111111] tracking-tight">Audio Practice Round</h1>
             <p className="text-[#6B7280] mt-1 text-[13px]">
-              Speak naturally and complete an adaptive voice mock interview. Powered by Gemini.
+              Speak naturally and complete an adaptive voice mock interview. Powered by GPT OSS.
             </p>
           </div>
 
@@ -1528,9 +1537,45 @@ export default function AudioRoundPage() {
               disabled={isGenerating}
               className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold px-6 py-2.5 rounded-xl text-sm shadow-sm transition"
             >
-              {isGenerating ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Start Interview"}
+              {isGenerating ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Generating questions…
+                </>
+              ) : (
+                "Start Interview"
+              )}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* VIEW: AI GENERATING QUESTIONS */}
+      {view === "generating" && (
+        <div className="bg-white border border-[#E5E7EB] rounded-2xl p-10 max-w-2xl mx-auto shadow-sm flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mb-6">
+            <RefreshCw className="w-7 h-7 text-blue-600 animate-spin" />
+          </div>
+          <h2 className="text-2xl font-bold text-[#111111]">AI is generating your questions</h2>
+          <p className="text-sm text-[#6B7280] mt-2 max-w-md leading-relaxed">
+            Personalizing a full question set from your resume, job description, and role.
+            The live interview will start only after this finishes — no pauses mid-call.
+          </p>
+          <div className="mt-8 w-full max-w-sm bg-[#FAFAFA] border border-[#E5E7EB] rounded-xl p-4 text-left space-y-2.5">
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              Building candidate blueprint…
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse [animation-delay:150ms]" />
+              Writing {settings.duration === 5 ? 5 : settings.duration === 10 ? 10 : settings.duration === 20 ? 15 : 20} voice interview questions…
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse [animation-delay:300ms]" />
+              Preparing your interview room…
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-6">This usually takes a few seconds</p>
         </div>
       )}
 
@@ -1539,7 +1584,9 @@ export default function AudioRoundPage() {
         <div className="bg-white border border-[#E5E7EB] rounded-2xl p-10 max-w-2xl mx-auto shadow-sm flex flex-col items-center">
           <div className="mb-6 text-center w-full relative">
             <h2 className="text-2xl font-bold text-[#111111]">Get Ready!</h2>
-            <p className="text-sm text-[#6B7280] mt-1">Your interview is about to start.</p>
+            <p className="text-sm text-[#6B7280] mt-1">
+              All questions are ready. Your interview is about to start.
+            </p>
             <button
               onClick={handleExit}
               className="absolute top-0 right-0 flex items-center gap-1.5 text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg transition font-semibold"
@@ -1609,7 +1656,7 @@ export default function AudioRoundPage() {
             {/* Timer & Question Details */}
             <div className="flex items-center gap-5">
               <span className="text-[12px] font-semibold text-slate-500">
-                Question {session ? session.questions.length : 1}/{settings.duration === 5 ? 5 : settings.duration === 10 ? 10 : settings.duration === 20 ? 15 : 20}
+                Question {(session?.currentQuestionIndex ?? 0) + 1}/{session?.questions.length || (settings.duration === 5 ? 5 : settings.duration === 10 ? 10 : settings.duration === 20 ? 15 : 20)}
               </span>
 
               <button
@@ -1667,13 +1714,13 @@ export default function AudioRoundPage() {
                       </div>
                     ) : isThinking ? (
                       <div className="flex flex-col items-center gap-4">
-                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100/50 px-3.5 py-1 rounded-full tracking-wider uppercase shadow-sm">Thinking...</span>
+                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100/50 px-3.5 py-1 rounded-full tracking-wider uppercase shadow-sm">Saving...</span>
                         <div className="flex items-center gap-2 py-3">
                           <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.3s]" />
                           <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce [animation-delay:-0.15s]" />
                           <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" />
                         </div>
-                        <p className="text-xs text-slate-500 italic">Generating next question...</p>
+                        <p className="text-xs text-slate-500 italic">Saving your answer and moving on…</p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-4">
@@ -1687,7 +1734,7 @@ export default function AudioRoundPage() {
                   {/* Question Display Card */}
                   <div className="w-full bg-slate-50 border border-slate-200/60 rounded-2xl p-6 text-center mt-6 shadow-sm">
                     {isThinking ? (
-                      <p className="text-slate-400 text-sm italic font-light">Analyzing your response...</p>
+                      <p className="text-slate-400 text-sm italic font-light">Loading the next question…</p>
                     ) : (
                       <p className="text-slate-800 text-sm leading-relaxed font-normal">
                         {currentQuestion ? currentQuestion.questionText : "Initializing interviewer..."}
@@ -1911,7 +1958,14 @@ export default function AudioRoundPage() {
             <div className="bg-[#FAFAFA] border border-[#E5E7EB] rounded-xl p-4 text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Overall Score</span>
               <span className="text-2xl font-extrabold text-blue-600 mt-1 block">
-                {session?.evaluation?.overallScore || 78}%
+                {session?.evaluation?.overallScore ?? 0}%
+              </span>
+              <span className={`text-[10px] font-bold mt-1 inline-block px-2 py-0.5 rounded-full ${
+                session?.evaluation?.passed
+                  ? "text-emerald-700 bg-emerald-50"
+                  : "text-rose-700 bg-rose-50"
+              }`}>
+                {session?.evaluation?.passed ? "Passed" : "Needs Practice"}
               </span>
             </div>
           </div>
@@ -1946,401 +2000,22 @@ export default function AudioRoundPage() {
 
       {/* VIEW: DETAILED REPORTS & METRICS */}
       {view === "results" && session?.report && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 animate-in fade-in duration-200 w-full">
-
-          {/* Sidebar Navigation */}
-          <div className="lg:col-span-1 space-y-2.5">
-            <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm mb-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Evaluation Results</h3>
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-lg">
-                  {session.evaluation?.overallScore || session.report.candidateSummary.overallScore}%
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-[#111111]">Overall Rating</h4>
-                  <p className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-full mt-1 inline-block">
-                    Passed
-                  </p>
-                </div>
-              </div>
-            </div>
-
+        <div className="max-w-6xl mx-auto space-y-4">
+          <div className="flex items-center justify-between print:hidden">
             <button
-              onClick={() => setActiveReportSection("overview")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${activeReportSection === "overview" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
+              onClick={() => setView("completed")}
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
             >
-              <Activity className="w-4 h-4" />
-              Overview Summary
+              ← Back to scorecard
             </button>
-
             <button
-              onClick={() => setActiveReportSection("questions")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${activeReportSection === "questions" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
+              onClick={() => window.print()}
+              className="text-xs font-semibold text-blue-600 hover:underline"
             >
-              <FileText className="w-4 h-4" />
-              Question Feedback
+              Print / Save PDF
             </button>
-
-            <button
-              onClick={() => setActiveReportSection("skills")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${activeReportSection === "skills" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
-            >
-              <Volume2 className="w-4 h-4" />
-              Strengths & Learning
-            </button>
-
-            <button
-              onClick={() => setActiveReportSection("transcript")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${activeReportSection === "transcript" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
-            >
-              <RefreshCw className="w-4 h-4" />
-              Interview Transcript
-            </button>
-
-            <button
-              onClick={() => setActiveReportSection("proctor")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${activeReportSection === "proctor" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
-            >
-              <ShieldAlert className="w-4 h-4" />
-              Proctoring Summary
-            </button>
-
-            <div className="pt-4 space-y-2">
-              <button
-                onClick={handleResetAll}
-                className="w-full flex items-center justify-center gap-1 bg-[#F9FAFB] hover:bg-[#F3F4F6] text-xs font-bold text-slate-700 py-2.5 rounded-xl border border-slate-200 transition"
-              >
-                {typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fullSessionId") ? "Return to Full Interview" : "Start New Interview"}
-              </button>
-              <button
-                onClick={handleExit}
-                className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 hover:border-rose-200 text-xs font-bold text-rose-600 py-2.5 rounded-xl border border-[#ECECEC] transition"
-              >
-                <LogOut className="w-3.5 h-3.5" /> Exit to Dashboard
-              </button>
-            </div>
           </div>
-
-          {/* Tab Content Display Area */}
-          <div className="lg:col-span-3 space-y-6">
-
-            {/* OVERVIEW SUMMARY TAB */}
-            {activeReportSection === "overview" && (
-              <div className="space-y-6">
-
-                {/* Circular chart breakdown */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
-                    <h3 className="text-sm font-bold text-[#111111]">Overall Performance</h3>
-                    <button
-                      onClick={() => window.print()}
-                      className="flex items-center gap-1.5 text-xs text-[#2563EB] font-semibold border border-blue-200 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Download Report
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-                    {/* Ring 1 - Overall */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">
-                          {session.report.candidateSummary.overallScore || 78}%
-                        </span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Overall Score</span>
-                      <span className="text-[10px] text-slate-400 mt-1">Excellent</span>
-                    </div>
-
-                    {/* Ring 2 - Tech */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-teal-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">
-                          {session.report.candidateSummary.technicalScore || 82}%
-                        </span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Technical Skills</span>
-                      <span className="text-[10px] text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded-full mt-1">Good</span>
-                    </div>
-
-                    {/* Ring 3 - Comm */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">
-                          {session.report.candidateSummary.communicationScore || 76}%
-                        </span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Communication</span>
-                      <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-full mt-1">Good</span>
-                    </div>
-
-                    {/* Ring 4 - Solve */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-amber-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">
-                          {session.report.candidateSummary.confidenceScore || 72}%
-                        </span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Confidence</span>
-                      <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full mt-1">Good</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Timeline and Stats summary */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-sm font-bold text-[#111111] mb-6 border-b border-slate-100 pb-3">Interview Summary</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <span className="text-xs font-semibold text-[#9CA3AF] block uppercase tracking-wider">Total Questions</span>
-                      <span className="text-lg font-bold text-[#111111] mt-1.5 block">
-                        {session.questions.length}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-xs font-semibold text-[#9CA3AF] block uppercase tracking-wider">Answers Submitted</span>
-                      <span className="text-lg font-bold text-[#111111] mt-1.5 block">
-                        {session.questions.filter(q => q.answerText && !q.answerText.includes("(Skipped)")).length}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-xs font-semibold text-[#9CA3AF] block uppercase tracking-wider">Duration</span>
-                      <span className="text-lg font-bold text-[#111111] mt-1.5 block">
-                        {session.report.candidateSummary.duration}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            )}
-
-            {/* QUESTION FEEDBACK TAB */}
-            {activeReportSection === "questions" && (
-              <div className="space-y-4">
-                {session.report.questionFeedback.map((q, idx) => (
-                  <div key={idx} className="bg-white border border-[#E5E7EB] rounded-2xl p-5 shadow-sm">
-                    <div
-                      onClick={() => setExpandedQuestion(expandedQuestion === q.question ? null : q.question)}
-                      className="flex justify-between items-center cursor-pointer"
-                    >
-                      <div className="flex gap-3">
-                        <span className="w-6 h-6 bg-slate-100 text-slate-800 rounded-full flex items-center justify-center font-bold text-xs">
-                          {idx + 1}
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-800 max-w-xl">{q.question}</h4>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">
-                          Score: {q.score}
-                        </span>
-                        {expandedQuestion === q.question ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                      </div>
-                    </div>
-
-                    {expandedQuestion === q.question && (
-                      <div className="mt-5 border-t border-slate-100 pt-5 space-y-4 text-xs">
-                        <div>
-                          <span className="font-bold text-slate-700 block mb-1.5">Candidate Answer Transcript</span>
-                          <p className="text-slate-600 bg-[#FAFAFA] border border-[#F3F4F6] p-3 rounded-lg leading-relaxed">
-                            {q.answer}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="font-bold text-slate-700 block mb-1.5">Constructive Feedback</span>
-                          <p className="text-slate-600 leading-relaxed">
-                            {q.feedback}
-                          </p>
-                        </div>
-                        {q.metrics && (
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                            <div>
-                              <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Accuracy</span>
-                              <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.accuracy}/10</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Communication</span>
-                              <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.communication}/10</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Problem Solving</span>
-                              <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.problemSolving}/10</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Confidence</span>
-                              <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.confidence}/10</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* STRENGTHS & LEARNING TAB */}
-            {activeReportSection === "skills" && (
-              <div className="space-y-6">
-
-                {/* Strengths & Weaknesses grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                  {/* Strengths */}
-                  <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-green-600 mb-4 flex items-center gap-1.5">
-                      <Check className="w-4 h-4" /> Strong Areas
-                    </h3>
-                    <ul className="space-y-3 text-xs text-slate-600">
-                      {session.report.strengths.map((str, idx) => (
-                        <li key={idx} className="flex gap-2 items-start">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 shrink-0"></span>
-                          <span>{str}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Weaknesses */}
-                  <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-rose-600 mb-4 flex items-center gap-1.5">
-                      <X className="w-4 h-4" /> Areas for Improvement
-                    </h3>
-                    <ul className="space-y-3 text-xs text-slate-600">
-                      {session.report.weaknesses.map((weak, idx) => (
-                        <li key={idx} className="flex gap-2 items-start">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0"></span>
-                          <span>{weak}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                </div>
-
-                {/* Recommendations */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-4 flex items-center gap-1.5">
-                    <ArrowRight className="w-4 h-4" /> Recommended Learning Path
-                  </h3>
-                  <ul className="space-y-3 text-xs text-slate-600">
-                    {session.report.recommendations.map((rec, idx) => (
-                      <li key={idx} className="flex gap-2.5 items-start">
-                        <span className="w-5 h-5 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span>{rec}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-              </div>
-            )}
-
-            {/* INTERVIEW TRANSCRIPT TAB */}
-            {activeReportSection === "transcript" && (
-              <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm space-y-6">
-                <h3 className="text-sm font-bold text-[#111111] border-b border-slate-100 pb-3">Complete Transcript</h3>
-
-                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                  {session.report.transcript ? (
-                    session.report.transcript.map((chat, idx) => (
-                      <div
-                        key={idx}
-                        className={`flex flex-col max-w-[80%] rounded-2xl p-4 text-xs leading-relaxed ${chat.speaker === "AI" ? "bg-slate-50 border border-slate-100 mr-auto text-slate-800" : "bg-blue-600 text-white ml-auto"}`}
-                      >
-                        <div className="flex justify-between items-center gap-4 mb-1.5 font-bold uppercase tracking-wider text-[9px] opacity-75">
-                          <span>{chat.speaker}</span>
-                          <span>{chat.timestamp}</span>
-                        </div>
-                        <p className="font-medium">{chat.text}</p>
-                      </div>
-                    ))
-                  ) : (
-                    session.questions.map((q, idx) => (
-                      <div key={idx} className="space-y-3">
-                        <div className="flex flex-col max-w-[80%] rounded-2xl p-4 text-xs leading-relaxed bg-slate-50 border border-slate-100 mr-auto text-slate-800">
-                          <div className="font-bold uppercase tracking-wider text-[9px] opacity-75 mb-1">AI</div>
-                          <p className="font-medium">{q.questionText}</p>
-                        </div>
-                        {q.answerText && (
-                          <div className="flex flex-col max-w-[80%] rounded-2xl p-4 text-xs leading-relaxed bg-blue-600 text-white ml-auto">
-                            <div className="font-bold uppercase tracking-wider text-[9px] opacity-75 mb-1">Candidate</div>
-                            <p className="font-medium">{q.answerText}</p>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* PROCTORING SUMMARY TAB */}
-            {activeReportSection === "proctor" && (
-              <div className="space-y-6">
-
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-sm font-bold text-[#111111] mb-6 border-b border-slate-100 pb-3">Proctoring Telemetry</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl">
-                      <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Tab Switches</span>
-                      <span className="text-lg font-bold text-slate-800 block mt-1.5">
-                        {session.report.proctoringSummary?.tabSwitches || 0}
-                      </span>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl">
-                      <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Fullscreen Exits</span>
-                      <span className="text-lg font-bold text-slate-800 block mt-1.5">
-                        {session.report.proctoringSummary?.fullscreenExits || 0}
-                      </span>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl">
-                      <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Screen Share Drops</span>
-                      <span className="text-lg font-bold text-slate-800 block mt-1.5">
-                        {session.report.proctoringSummary?.screenShareInterruptions || 0}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 border border-[#F3F4F6] p-4 rounded-xl">
-                    <div className={`p-2.5 rounded-lg ${session.report.proctoringSummary?.status === "Clean" ? "bg-green-50 text-green-600" : session.report.proctoringSummary?.status === "Flagged" ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"}`}>
-                      <ShieldAlert className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800">Proctor Status</h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        This session is marked as <span className="font-bold">{session.report.proctoringSummary?.status || "Clean"}</span>.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Timeline activity log */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-sm font-bold text-[#111111] mb-6 border-b border-slate-100 pb-3">Session Timeline</h3>
-                  <div className="relative border-l border-slate-200 pl-4 space-y-6 ml-2 text-xs">
-                    {(session.report.timeline || session.timeline).map((log, idx) => (
-                      <div key={idx} className="relative">
-                        <span className="absolute -left-[21px] top-0.5 w-2.5 h-2.5 bg-blue-600 rounded-full border-2 border-white ring-4 ring-blue-50"></span>
-                        <div className="flex gap-4">
-                          <span className="text-[10px] text-slate-400 font-bold tracking-wider">{log.timestamp}</span>
-                          <span className="text-slate-700 font-semibold">{log.label}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-            )}
-
-          </div>
+          <InterviewReportView report={formatToUnifiedReport(session, "audio")} />
         </div>
       )}
 

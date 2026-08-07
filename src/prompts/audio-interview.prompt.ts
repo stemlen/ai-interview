@@ -2,6 +2,72 @@ import { InterviewBlueprint, AIQuestion, AudioInterviewSession, AudioInterviewSe
 
 export const audioInterviewPrompts = {
   /**
+   * Pre-generate the full question list before the live interview starts.
+   */
+  getAudioBatchQuestionsPrompt(
+    blueprint: InterviewBlueprint,
+    settings: AudioInterviewSettings,
+    count: number
+  ): string {
+    const role = blueprint.role || "Software Engineer";
+    const experience = blueprint.experienceLevel || "Junior/Mid";
+    const skills = blueprint.skills.join(", ");
+    const projects = blueprint.projects.map((p: any) => `${p.title}: ${p.description}`).join("; ");
+
+    let modeDirective = "";
+    switch (settings.practiceMode) {
+      case "Rapid Fire":
+        modeDirective =
+          "RAPID FIRE MODE: Ask quick, crisp, conceptual questions that can be answered in 1-2 sentences.";
+        break;
+      case "Deep Technical":
+        modeDirective =
+          "DEEP TECHNICAL MODE: Ask in-depth questions targeting frameworks, runtime internals, and code-level reasoning.";
+        break;
+      case "Behavioral Practice":
+        modeDirective =
+          "BEHAVIORAL MODE: Soft skills, communication, leadership, and conflict resolution (STAR format).";
+        break;
+      case "Project Discussion":
+        modeDirective = `PROJECT DISCUSSION MODE: Focus on these projects: ${projects}.`;
+        break;
+      case "HR Round":
+        modeDirective =
+          "HR ROUND MODE: Standard HR questions (career goals, motivation, culture fit).";
+        break;
+      case "System Design":
+        modeDirective =
+          "SYSTEM DESIGN MODE: Scalability, databases, microservices, caching, rate limiting.";
+        break;
+    }
+
+    return `You are a Senior Technical Interviewer preparing a full AUDIO mock interview script in advance.
+Candidate Role: ${role}
+Experience Level: ${experience}
+Target Skills: ${skills}
+Interview Type: ${settings.interviewType}
+Practice Mode: ${settings.practiceMode}
+Difficulty: ${settings.difficulty === "Adaptive" ? "Medium (varied depth across the set)" : settings.difficulty}
+
+${modeDirective}
+
+Generate exactly ${count} interview questions as a complete ordered script.
+Guidelines:
+1. Question 1 should briefly greet the candidate and ask an introductory technical question.
+2. Cover a diverse mix of the target skills and projects — do not repeat the same topic.
+3. Progress from easier/foundational to deeper questions.
+4. Do NOT use markdown (**, _, \`, headers). Questions will be read aloud by TTS.
+5. Keep each question brief (1-3 sentences) and ask exactly one clear question per item.
+6. Do NOT include answers or multiple-choice options.
+
+You MUST respond ONLY with a JSON object in this format:
+{
+  "questions": ["question 1 text", "question 2 text", "... exactly ${count} strings"]
+}
+`;
+  },
+
+  /**
    * Prompt to generate the next question (or follow-up) for Audio Interview
    */
   getAudioQuestionPrompt(blueprint: InterviewBlueprint, settings: AudioInterviewSettings, history: AIQuestion[]): string {

@@ -1,61 +1,19 @@
 import { dbService } from "./db.service";
+import { aiService } from "./ai.service";
+import { aiInterviewPrompts } from "../prompts/ai-interview.prompt";
+import { fallbackBlueprint } from "./offline-fallbacks";
+import {
+  scoreAnswerLocally,
+  buildVerbalInterviewReport,
+} from "./report-engine";
 import type {
   InterviewContext,
   AIInterviewSession,
   AIQuestion,
-  AIInterviewReport,
   InterviewBlueprint,
-  Project,
 } from "../types";
 
-/**
- * Testing mode: no Gemini calls.
- * All questions, evaluations, and reports use local fallbacks.
- */
-const USE_FALLBACK_ONLY = true;
-
-function buildFallbackBlueprint(context: InterviewContext): InterviewBlueprint {
-  const candidateName = context.resume?.name || "Candidate";
-  const role = context.role || "Full Stack Developer";
-  const skills =
-    context.resume?.skills ||
-    context.jd?.requiredSkills ||
-    ["JavaScript", "TypeScript", "React", "Node.js", "MongoDB"];
-  const frameworks = context.jd?.preferredSkills || ["React", "Express", "Next.js"];
-  const databases = ["MongoDB", "PostgreSQL"];
-  const experienceLevel: InterviewBlueprint["experienceLevel"] =
-    context.jd?.experience?.includes("5") || (context.resume?.skills?.length ?? 0) > 8
-      ? "Mid"
-      : "Junior";
-
-  const projects: Project[] =
-    context.resume?.projects?.map((p) => ({
-      title: p.split("(")[0].trim(),
-      description: p,
-      technologies: skills.slice(0, 3),
-    })) || [
-      {
-        title: "E-Commerce System",
-        description: "A scalable shopping platform built with React and Node.",
-        technologies: ["React", "Node.js", "MongoDB"],
-      },
-    ];
-
-  return {
-    candidateName,
-    source: context.source,
-    role,
-    experienceLevel,
-    yearsOfExperience: experienceLevel === "Mid" ? 4 : 2,
-    skills,
-    frameworks,
-    databases,
-    projects,
-    confidenceScore: 85,
-    suggestedDifficulty: "Medium",
-    estimatedCompanyLevel: "Product",
-  };
-}
+export const AI_INTERVIEW_QUESTION_COUNT = 10;
 
 const FALLBACK_QUESTIONS = [
   (role: string, skill: string) =>
@@ -80,142 +38,45 @@ const FALLBACK_QUESTIONS = [
     `Finally, how do you stay up to date with new technologies, and what would you want to learn next in your career?`,
 ];
 
-function getFallbackQuestionText(
-  index: number,
-  blueprint: InterviewBlueprint
-): string {
+function getFallbackQuestionText(index: number, blueprint: InterviewBlueprint): string {
   const role = blueprint.role || "Software Engineer";
   const skill = blueprint.skills[index % blueprint.skills.length] || "React";
   const factory = FALLBACK_QUESTIONS[Math.min(index, FALLBACK_QUESTIONS.length - 1)];
   return factory(role, skill);
 }
 
-function evaluateAnswerFallback(answerText: string) {
-  const length = answerText.trim().length;
-  let score = 50;
-  let rating = 5;
-  let feedback = "The answer was brief and lacked specific technical details.";
-
-  if (length > 100) {
-    score = 80;
-    rating = 8;
-    feedback =
-      "Good response with relevant terminology, demonstrating clear conceptual knowledge.";
-  } else if (length > 40) {
-    score = 70;
-    rating = 7;
-    feedback =
-      "Clear communication, though further depth in real-world optimizations would be beneficial.";
-  }
-
-  return {
-    technicalAccuracy: rating,
-    communication: Math.min(10, rating + 1),
-    problemSolving: rating,
-    confidence: Math.min(10, rating + 1),
-    completeness: rating,
-    practicalKnowledge: rating,
-    feedback,
-    score,
-  };
-}
-
-function buildFallbackReport(session: AIInterviewSession): AIInterviewReport {
-  const evalData = session.evaluation || {
-    overallScore: 0,
-    technicalScore: 0,
-    communicationScore: 0,
-    problemSolvingScore: 0,
-    confidenceScore: 0,
-    passed: false,
-  };
-  const durationMins = Math.max(
-    1,
-    Math.round((Date.now() - new Date(session.createdAt).getTime()) / 60000)
-  );
-
-  const qFeedback = session.questions.map((q) => ({
-    question: q.questionText,
-    answer: q.answerText || "(Skipped)",
-    score: q.evaluation?.score || 0,
-    feedback: q.evaluation?.feedback || "",
-    metrics: {
-      accuracy: q.evaluation?.technicalAccuracy || 0,
-      communication: q.evaluation?.communication || 0,
-      problemSolving: q.evaluation?.problemSolving || 0,
-      confidence: q.evaluation?.confidence || 0,
-    },
-  }));
-
-  const tabSwitches = session.violations.filter((v) => v.type === "tab_switch").length;
-  const fullscreenExits = session.violations.filter((v) => v.type === "fullscreen_exit").length;
-  const screenShareInterruptions = session.violations.filter(
-    (v) => v.type === "screen_share_interrupted"
-  ).length;
-
-  const transcriptLogs = session.questions.flatMap((q, idx) => [
-    { speaker: "AI" as const, text: q.questionText, timestamp: `${idx * 2}:00` },
-    {
-      speaker: "Candidate" as const,
-      text: q.answerText || "(Skipped)",
-      timestamp: `${idx * 2 + 1}:15`,
-    },
-  ]);
-
-  return {
-    candidateSummary: {
-      overallScore: evalData.overallScore,
-      technicalScore: evalData.technicalScore,
-      communicationScore: evalData.communicationScore,
-      problemSolvingScore: evalData.problemSolvingScore,
-      confidenceScore: evalData.confidenceScore,
-      duration: `${durationMins}:00`,
-    },
-    questionFeedback: qFeedback,
-    strengths: [
-      "Demonstrated conceptual knowledge in key software engineering practices.",
-      "Communicated answers in a structured way.",
-      "Kept a steady tone during technical explanations.",
-    ],
-    weaknesses: [
-      "Could elaborate further on edge cases and trade-offs.",
-      "Some answers could include more production-level detail.",
-    ],
-    recommendations: [
-      "Practice explaining system design trade-offs out loud.",
-      "Add more concrete examples from past projects.",
-      "Review performance profiling and debugging techniques.",
-    ],
-    transcript: transcriptLogs,
-    timeline: [
-      { timestamp: "00:00", label: "Introduction" },
-      { timestamp: "02:00", label: "Core Technical Concepts" },
-      { timestamp: "06:00", label: "Project Architecture" },
-      { timestamp: "12:00", label: "Behavioral & Scenarios" },
-      { timestamp: `${durationMins}:00`, label: "Interview Completed" },
-    ],
-    proctoringSummary: {
-      tabSwitches,
-      fullscreenExits,
-      screenShareInterruptions,
-      status: tabSwitches > 3 ? "Suspicious" : tabSwitches > 0 ? "Flagged" : "Clean",
-    },
-  };
+function buildFallbackQuestionList(blueprint: InterviewBlueprint, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => getFallbackQuestionText(i, blueprint));
 }
 
 export const aiInterviewService = {
   async startSession(userId: string, context: InterviewContext): Promise<AIInterviewSession> {
     const sessionId = "ai-session-" + Math.random().toString(36).substring(2, 11);
+    const targetCount = AI_INTERVIEW_QUESTION_COUNT;
 
-    // Testing: always use local blueprint (no Gemini)
-    const blueprint = buildFallbackBlueprint(context);
-    void USE_FALLBACK_ONLY;
+    const blueprint = await aiService
+      .generateBlueprint(context)
+      .catch(() => fallbackBlueprint(context));
 
-    const firstQuestion: AIQuestion = {
-      id: "q-1",
-      questionText: getFallbackQuestionText(0, blueprint),
+    const batchPrompt = aiInterviewPrompts.getAIBatchQuestionsPrompt(blueprint, targetCount);
+    const batch = await aiService.generateJSON<{ questions: string[] }>(batchPrompt, () => ({
+      questions: buildFallbackQuestionList(blueprint, targetCount),
+    }));
+
+    const texts = (batch.questions || [])
+      .map((q) => (typeof q === "string" ? q.trim() : ""))
+      .filter(Boolean);
+
+    const fallbacks = buildFallbackQuestionList(blueprint, targetCount);
+    while (texts.length < targetCount) {
+      texts.push(fallbacks[texts.length % fallbacks.length]);
+    }
+
+    const questions: AIQuestion[] = texts.slice(0, targetCount).map((questionText, i) => ({
+      id: `q-${i + 1}`,
+      questionText,
       evaluation: null,
-    };
+    }));
 
     const session: AIInterviewSession = {
       id: sessionId,
@@ -223,7 +84,7 @@ export const aiInterviewService = {
       blueprint,
       status: "in_progress",
       currentQuestionIndex: 0,
-      questions: [firstQuestion],
+      questions,
       violations: [],
       timeline: [
         {
@@ -241,59 +102,16 @@ export const aiInterviewService = {
     return session;
   },
 
-  finalizeSession(session: AIInterviewSession): AIInterviewSession {
-    // Drop any unanswered trailing question so the report only covers answered ones
+  async finalizeWithReport(session: AIInterviewSession): Promise<AIInterviewSession> {
     session.questions = session.questions.filter(
       (q) => q.answerText != null || q.evaluation != null
     );
 
-    if (session.questions.length === 0) {
-      session.status = "completed";
-      session.evaluation = {
-        overallScore: 0,
-        technicalScore: 0,
-        communicationScore: 0,
-        problemSolvingScore: 0,
-        confidenceScore: 0,
-        passed: false,
-      };
-      session.report = buildFallbackReport(session);
-      session.timeline = session.report.timeline;
-      return session;
-    }
-
-    let sumOverall = 0;
-    let sumTech = 0;
-    let sumComm = 0;
-    let sumSolve = 0;
-    let sumConf = 0;
-    let scored = 0;
-
-    session.questions.forEach((q) => {
-      if (q.evaluation) {
-        scored += 1;
-        sumOverall += q.evaluation.score;
-        sumTech += q.evaluation.technicalAccuracy;
-        sumComm += q.evaluation.communication;
-        sumSolve += q.evaluation.problemSolving;
-        sumConf += q.evaluation.confidence;
-      }
-    });
-
-    const count = Math.max(scored, 1);
+    const built = await buildVerbalInterviewReport(session, "ai");
     session.status = "completed";
-    session.evaluation = {
-      overallScore: Math.round(sumOverall / count),
-      technicalScore: Math.round((sumTech / count) * 10),
-      communicationScore: Math.round((sumComm / count) * 10),
-      problemSolvingScore: Math.round((sumSolve / count) * 10),
-      confidenceScore: Math.round((sumConf / count) * 10),
-      passed: sumOverall / count >= 50,
-    };
-
-    const finalReport = buildFallbackReport(session);
-    session.report = finalReport;
-    session.timeline = finalReport.timeline || session.timeline;
+    session.evaluation = built.evaluation;
+    session.report = built.report;
+    session.timeline = built.report.timeline || session.timeline;
     return session;
   },
 
@@ -320,37 +138,28 @@ export const aiInterviewService = {
       session.violations = [...session.violations, ...violations];
     }
 
-    // Testing: local evaluation only (no Gemini)
-    session.questions[currentQuestionIndex].evaluation = evaluateAnswerFallback(
-      answerText || ""
-    );
+    // Honest provisional score mid-interview (idk → ~0–8). Final GPT report re-scores at end.
+    session.questions[currentQuestionIndex].evaluation = scoreAnswerLocally(answerText || "");
 
-    const totalQuestionsAsked = session.questions.length;
-    const shouldComplete = endInterview || totalQuestionsAsked >= 10;
+    const nextIndex = currentQuestionIndex + 1;
+    const isLast = nextIndex >= session.questions.length;
 
-    if (shouldComplete) {
-      this.finalizeSession(session);
+    if (endInterview || isLast) {
+      await this.finalizeWithReport(session);
     } else {
-      const nextQuestion: AIQuestion = {
-        id: `q-${totalQuestionsAsked + 1}`,
-        questionText: getFallbackQuestionText(totalQuestionsAsked, session.blueprint),
-        evaluation: null,
-      };
+      session.currentQuestionIndex = nextIndex;
 
-      session.questions.push(nextQuestion);
-      session.currentQuestionIndex = totalQuestionsAsked;
-
-      if (totalQuestionsAsked === 3) {
+      if (nextIndex === 3) {
         session.timeline.push({
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           label: "Core Technical Concepts",
         });
-      } else if (totalQuestionsAsked === 6) {
+      } else if (nextIndex === 6) {
         session.timeline.push({
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           label: "Project Architecture",
         });
-      } else if (totalQuestionsAsked === 8) {
+      } else if (nextIndex === 8) {
         session.timeline.push({
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           label: "Behavioral & Scenarios",

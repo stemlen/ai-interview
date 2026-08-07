@@ -46,6 +46,8 @@ import type {
   OAReport,
   InterviewContext
 } from "@/src/types";
+import { InterviewReportView } from "@/src/components/Report/InterviewReportView";
+import { formatToUnifiedReport } from "@/src/lib/reportFormatter";
 
 type ViewState =
   | "setup"
@@ -227,13 +229,21 @@ export default function OARoundPage() {
       }
     }
 
-    // Direct access without sessionId or fullSessionId: start a fresh new interview
-    localStorage.removeItem("active_oa_session_id");
-    localStorage.removeItem("interview_context_oa");
-    setSessionId(null);
-    setSession(null);
-    setContextReady(false);
-    setView("setup");
+    // Direct access without sessionId or fullSessionId: restore active session or saved context if available
+    const activeSaved = localStorage.getItem("active_oa_session_id");
+    const contextSaved = localStorage.getItem("interview_context_oa");
+    if (activeSaved) {
+      setSessionId(activeSaved);
+      loadSession(activeSaved);
+    } else if (contextSaved) {
+      setContextReady(true);
+      setView("setup");
+    } else {
+      setSessionId(null);
+      setSession(null);
+      setContextReady(false);
+      setView("setup");
+    }
   }, []);
 
   const stopOAProctorStreams = () => {
@@ -1750,7 +1760,7 @@ export default function OARoundPage() {
                       <div className="bg-[#F9FAFB] rounded-lg border border-[#ECECEC] p-4 space-y-3">
                         <div className="flex items-center gap-1.5 text-blue-600 font-semibold">
                           <Sparkles className="w-4 h-4" />
-                          <span>Gemini Code Analysis</span>
+                          <span>AI Code Analysis</span>
                         </div>
 
                         <div className="space-y-3 mt-2 text-xs">
@@ -2277,278 +2287,22 @@ export default function OARoundPage() {
 
       {/* ─── DETAILED ASSESSMENT REPORT ───────────────────────────────────── */}
       {view === "report" && session?.report && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-200">
-          {/* Sidebar Navigation */}
-          <div className="lg:col-span-3 bg-white rounded-lg border border-[#ECECEC] p-4 space-y-2 h-fit">
+        <div className="max-w-6xl mx-auto space-y-4">
+          <div className="flex items-center justify-between print:hidden">
             <button
-              onClick={() => setActiveReportSection("overview")}
-              className={cn(
-                "w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer",
-                activeReportSection === "overview" ? "bg-blue-50 text-blue-600" : "text-[#6B7280] hover:bg-gray-50"
-              )}
+              onClick={() => setView("results")}
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
             >
-              Overview
+              ← Back to results
             </button>
             <button
-              onClick={() => setActiveReportSection("coding")}
-              className={cn(
-                "w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer",
-                activeReportSection === "coding" ? "bg-blue-50 text-blue-600" : "text-[#6B7280] hover:bg-gray-50"
-              )}
+              onClick={() => window.print()}
+              className="text-xs font-semibold text-blue-600 hover:underline"
             >
-              Coding Analysis
+              Print / Save PDF
             </button>
-            <button
-              onClick={() => setActiveReportSection("skills")}
-              className={cn(
-                "w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer",
-                activeReportSection === "skills" ? "bg-blue-50 text-blue-600" : "text-[#6B7280] hover:bg-gray-50"
-              )}
-            >
-              Strengths & Weaknesses
-            </button>
-            <button
-              onClick={() => setActiveReportSection("recommendations")}
-              className={cn(
-                "w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer",
-                activeReportSection === "recommendations" ? "bg-blue-50 text-blue-600" : "text-[#6B7280] hover:bg-gray-50"
-              )}
-            >
-              Recommendations
-            </button>
-
-            <div className="border-t border-[#ECECEC] pt-4 mt-4 text-center space-y-2">
-              <button
-                onClick={() => setView("results")}
-                className="w-full py-2 border border-[#ECECEC] hover:bg-gray-50 rounded-lg text-[11px] font-semibold text-[#6B7280] transition cursor-pointer"
-              >
-                Back to Results Summary
-              </button>
-              <button
-                onClick={handleExit}
-                className="w-full py-2 border border-[#ECECEC] bg-white hover:bg-rose-50 hover:border-rose-200 rounded-lg text-[11px] font-semibold text-rose-600 transition cursor-pointer flex items-center justify-center gap-1"
-              >
-                <LogOut className="w-3 h-3 text-rose-500" /> Exit Assessment
-              </button>
-            </div>
           </div>
-
-          {/* Report pane */}
-          <div className="lg:col-span-9 bg-white rounded-lg border border-[#ECECEC] p-6 space-y-6">
-            {/* Tab 1: Overview */}
-            {activeReportSection === "overview" && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-sm font-semibold text-[#111111]">Detailed Performance Overview</h2>
-                  <p className="text-xs text-[#9CA3AF] mt-0.5">Summary of candidate profile details and assessment durations.</p>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="bg-[#F9FAFB] rounded-lg border border-[#ECECEC] p-4 text-center">
-                    <span className="text-[10px] text-[#9CA3AF] block uppercase font-bold">Overall Score</span>
-                    <span className="text-xl font-bold text-green-600 mt-2 block">{session.report.candidateSummary.overallScore}%</span>
-                    <span className="text-[9px] text-[#9CA3AF] block mt-1">Good</span>
-                  </div>
-                  <div className="bg-[#F9FAFB] rounded-lg border border-[#ECECEC] p-4 text-center">
-                    <span className="text-[10px] text-[#9CA3AF] block uppercase font-bold">Percentile</span>
-                    <span className="text-xl font-bold text-[#111111] mt-2 block">85th</span>
-                    <span className="text-[9px] text-green-600 block mt-1">Above Average</span>
-                  </div>
-                  <div className="bg-[#F9FAFB] rounded-lg border border-[#ECECEC] p-4 text-center">
-                    <span className="text-[10px] text-[#9CA3AF] block uppercase font-bold">Accuracy</span>
-                    <span className="text-xl font-bold text-blue-600 mt-2 block">{session.evaluation?.accuracy}%</span>
-                    <span className="text-[9px] text-[#9CA3AF] block mt-1">Good</span>
-                  </div>
-                  <div className="bg-[#F9FAFB] rounded-lg border border-[#ECECEC] p-4 text-center">
-                    <span className="text-[10px] text-[#9CA3AF] block uppercase font-bold">Total Time</span>
-                    <span className="text-xl font-bold text-[#111111] mt-2 block">{session.report.candidateSummary.duration}</span>
-                    <span className="text-[9px] text-[#9CA3AF] block mt-1">Completed</span>
-                  </div>
-                </div>
-
-                {/* Section-wise Performance */}
-                <div className="space-y-3">
-                  <h3 className="text-xs font-semibold text-[#111111] uppercase tracking-wider">Section-wise Performance</h3>
-                  <div className="border border-[#ECECEC] rounded-lg overflow-hidden text-xs">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-gray-50/50 text-[#6B7280] font-semibold border-b border-[#ECECEC]">
-                          <th className="p-3">Section</th>
-                          <th className="p-3">Score</th>
-                          <th className="p-3">Accuracy</th>
-                          <th className="p-3">Time Taken</th>
-                          <th className="p-3">Performance</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#ECECEC] text-[#111111]">
-                        <tr>
-                          <td className="p-3 font-semibold">MCQ Section</td>
-                          <td className="p-3">{session.evaluation?.mcqScore}%</td>
-                          <td className="p-3">{session.evaluation?.mcqStats.accuracy}%</td>
-                          <td className="p-3">18 mins</td>
-                          <td className="p-3"><span className="text-green-600 font-semibold bg-green-50 px-2.5 py-0.5 rounded-full text-[10px]">Good</span></td>
-                        </tr>
-                        <tr>
-                          <td className="p-3 font-semibold">Coding Section</td>
-                          <td className="p-3">{session.evaluation?.codingScore}%</td>
-                          <td className="p-3">74%</td>
-                          <td className="p-3">40 mins</td>
-                          <td className="p-3"><span className="text-green-600 font-semibold bg-green-50 px-2.5 py-0.5 rounded-full text-[10px]">Good</span></td>
-                        </tr>
-                        <tr>
-                          <td className="p-3 font-semibold">Aptitude Section</td>
-                          <td className="p-3">{session.evaluation?.aptitudeScore}%</td>
-                          <td className="p-3">{session.evaluation?.aptitudeStats.accuracy}%</td>
-                          <td className="p-3">10 mins</td>
-                          <td className="p-3"><span className="text-green-600 font-semibold bg-green-50 px-2.5 py-0.5 rounded-full text-[10px]">Good</span></td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab 2: Coding Analysis */}
-            {activeReportSection === "coding" && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-sm font-semibold text-[#111111]">Coding Performance Analysis</h2>
-                  <p className="text-xs text-[#9CA3AF] mt-0.5">Detailed breakdown of problem-solving patterns, logic, and complexity optimization.</p>
-                </div>
-
-                <div className="bg-gray-50/50 rounded-lg border border-[#ECECEC] p-4 space-y-4 text-xs">
-                  <div className="grid grid-cols-3 gap-4 border-b border-[#ECECEC] pb-4">
-                    <div>
-                      <span className="text-[10px] text-[#9CA3AF] uppercase font-bold block">Problems Attempted</span>
-                      <span className="text-sm font-semibold text-[#111111] mt-0.5 block">{session.report.codingPerformance.problemsAttempted}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-[#9CA3AF] uppercase font-bold block">Passed Test Cases</span>
-                      <span className="text-sm font-semibold text-green-600 mt-0.5 block">{session.report.codingPerformance.passed}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-[#9CA3AF] uppercase font-bold block">Failed Test Cases</span>
-                      <span className="text-sm font-semibold text-red-600 mt-0.5 block">{session.report.codingPerformance.failed}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <span className="font-bold text-[#111111] block">Code Quality & Readability:</span>
-                      <p className="text-[#6B7280] leading-relaxed mt-0.5">{session.report.codingPerformance.codeQuality}</p>
-                    </div>
-                    <div>
-                      <span className="font-bold text-[#111111] block">Runtime Optimization:</span>
-                      <p className="text-[#6B7280] leading-relaxed mt-0.5">{session.report.codingPerformance.optimization}</p>
-                    </div>
-                    <div>
-                      <span className="font-bold text-[#111111] block">Suggestions:</span>
-                      <p className="text-[#6B7280] leading-relaxed mt-0.5">{session.report.codingPerformance.suggestions}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab 3: Skills / Strengths */}
-            {activeReportSection === "skills" && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-sm font-semibold text-[#111111]">Technical Strengths & Weaknesses</h2>
-                  <p className="text-xs text-[#9CA3AF] mt-0.5">AI-inferred profile assessment based on incorrect/correct answers and optimization choices.</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-                  {/* Strengths */}
-                  <div className="border border-green-100 bg-green-50/10 rounded-lg p-5 space-y-3">
-                    <h3 className="font-bold text-green-700 flex items-center gap-1.5">
-                      <CheckCircle className="w-4 h-4" /> Strong Areas
-                    </h3>
-                    <ul className="space-y-1.5 pl-4 list-disc text-green-800/80 leading-relaxed font-medium">
-                      {session.report.strongAreas.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Weaknesses */}
-                  <div className="border border-red-100 bg-red-50/10 rounded-lg p-5 space-y-3">
-                    <h3 className="font-bold text-red-700 flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4" /> Weak Areas
-                    </h3>
-                    <ul className="space-y-1.5 pl-4 list-disc text-red-800/80 leading-relaxed font-medium">
-                      {session.report.weakAreas.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab 4: Recommendations & Learning Path */}
-            {activeReportSection === "recommendations" && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-sm font-semibold text-[#111111]">Personalized Learning Path</h2>
-                  <p className="text-xs text-[#9CA3AF] mt-0.5">Recommendations and course targets suggested by the evaluation engine.</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="bg-[#F9FAFB] rounded-lg border border-[#ECECEC] p-4 text-xs space-y-2">
-                    <span className="font-bold text-[#111111] block">Interview Readiness:</span>
-                    <span className="font-semibold text-[#6B7280]">{session.report.interviewReadiness}</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-semibold text-[#111111] uppercase tracking-wider">Recommended Action Steps:</h3>
-                    <div className="space-y-2 text-xs">
-                      {session.report.personalizedLearningPath.map((pathItem, idx) => (
-                        <div key={idx} className="flex items-start gap-2.5 p-3 rounded-lg border border-[#ECECEC] bg-white text-[#6B7280] leading-relaxed">
-                          <BookOpen className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                          <span>{pathItem}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Qualification Next Step Call to action */}
-                  <div className="border-t border-[#ECECEC] pt-6 flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] text-[#9CA3AF] uppercase font-bold block">Final Recommendation</span>
-                      <span className="text-xs font-bold text-[#111111] mt-0.5 block">{session.report.finalRecommendation}</span>
-                    </div>
-
-                    {session.evaluation?.passed || getFullSessionId() ? (
-                      <button
-                        onClick={() => {
-                          const fId = getFullSessionId();
-                          if (fId) {
-                            toast.success("Starting AI Interview round...");
-                            window.location.href = `/dashboard/ai?fullSessionId=${fId}`;
-                            return;
-                          }
-                          toast.success("Redirecting to AI Interview Round...");
-                          window.location.href = "/dashboard/ai";
-                        }}
-                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
-                      >
-                        {getFullSessionId() ? "Continue to AI Interview" : "Proceed to AI Interview"} <ChevronRight className="w-4 h-4" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleResetAll}
-                        className="px-5 py-2.5 border border-[#ECECEC] hover:bg-gray-50 text-xs font-semibold rounded-lg text-[#6B7280] transition cursor-pointer"
-                      >
-                        Try Assessment Again
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <InterviewReportView report={formatToUnifiedReport(session, "oa")} />
         </div>
       )}
     </div>

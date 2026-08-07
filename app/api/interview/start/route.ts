@@ -1,48 +1,8 @@
 import { NextResponse } from "next/server";
 import { dbService } from "@/src/services/db.service";
-import type { FullInterviewSession, InterviewBlueprint, InterviewContext, Project } from "@/src/types";
-
-function buildFallbackBlueprint(context: InterviewContext): InterviewBlueprint {
-  const candidateName = context.resume?.name || "Candidate";
-  const role = context.role || "Full Stack Developer";
-  const skills =
-    context.resume?.skills ||
-    context.jd?.requiredSkills ||
-    ["JavaScript", "TypeScript", "React", "Node.js"];
-  const frameworks = context.jd?.preferredSkills || ["React", "Express", "Next.js"];
-  const experienceLevel: InterviewBlueprint["experienceLevel"] =
-    context.jd?.experience?.includes("5") || (context.resume?.skills?.length ?? 0) > 8
-      ? "Mid"
-      : "Junior";
-
-  const projects: Project[] =
-    context.resume?.projects?.map((p) => ({
-      title: p.split("(")[0].trim(),
-      description: p,
-      technologies: skills.slice(0, 3),
-    })) || [
-      {
-        title: "E-Commerce System",
-        description: "A scalable shopping platform built with React and Node.",
-        technologies: ["React", "Node.js", "MongoDB"],
-      },
-    ];
-
-  return {
-    candidateName,
-    source: context.source,
-    role,
-    experienceLevel,
-    yearsOfExperience: experienceLevel === "Mid" ? 4 : 2,
-    skills,
-    frameworks,
-    databases: ["MongoDB", "PostgreSQL"],
-    projects,
-    confidenceScore: 85,
-    suggestedDifficulty: "Medium",
-    estimatedCompanyLevel: "Product",
-  };
-}
+import { aiService } from "@/src/services/ai.service";
+import { fallbackBlueprint } from "@/src/services/offline-fallbacks";
+import type { FullInterviewSession, InterviewContext } from "@/src/types";
 
 export async function POST(req: Request) {
   try {
@@ -55,8 +15,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // Testing-friendly: local blueprint (no Gemini)
-    const blueprint = buildFallbackBlueprint(context as InterviewContext);
+    // GPT OSS 20b blueprint (30s timeout → local fallback)
+    const blueprint = await aiService
+      .generateBlueprint(context as InterviewContext)
+      .catch(() => fallbackBlueprint(context as InterviewContext));
 
     const sessionId = `full-session-${Math.random().toString(36).substr(2, 9)}`;
     const session: FullInterviewSession = {

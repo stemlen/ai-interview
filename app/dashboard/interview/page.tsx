@@ -33,6 +33,8 @@ import {
   Brain,
 } from "lucide-react";
 import { toast } from "sonner";
+import { InterviewReportView } from "@/src/components/Report/InterviewReportView";
+import { formatToUnifiedReport } from "@/src/lib/reportFormatter";
 
 type GateView = "config" | "review" | "permissions" | "rounds" | "lobby" | "hub";
 
@@ -542,14 +544,6 @@ export default function FullInterviewPage() {
   }
 
   const isCompleted = session.status === "completed";
-  const summary = session.report?.candidateSummary || {
-    overallScore: session.evaluation?.overallScore || 0,
-    technicalScore: 0,
-    communicationScore: 0,
-    problemSolvingScore: 0,
-    confidenceScore: 0,
-    duration: "—",
-  };
 
   return (
     <div className="max-w-5xl mx-auto pb-16">
@@ -735,251 +729,12 @@ export default function FullInterviewPage() {
         </div>
       )}
 
-      {isCompleted && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          <div className="lg:col-span-1 space-y-4">
-            <div className="bg-white border border-[#ECECEC] rounded-lg p-6 text-center shadow-sm">
-              <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">
-                Overall score
-              </span>
-              <div className="relative w-28 h-28 flex items-center justify-center bg-blue-50 border-4 border-white shadow-md rounded-full mx-auto my-5">
-                <span className="text-2xl font-extrabold text-blue-600">
-                  {summary.overallScore}%
-                </span>
-              </div>
-              <span
-                className={`text-[10px] font-extrabold px-3 py-1 rounded-full uppercase border ${
-                  session.evaluation?.passed
-                    ? "bg-green-50 text-green-600 border-green-200"
-                    : "bg-rose-50 text-rose-600 border-rose-200"
-                }`}
-              >
-                {session.evaluation?.passed ? "Passed" : "Needs Review"}
-              </span>
-            </div>
-
-            <div className="bg-white border border-[#ECECEC] rounded-lg p-5 space-y-3">
-              <h3 className="text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
-                Completed Rounds
-              </h3>
-              {session.oaSessionId ? (
-                <a
-                  href={`/dashboard/interview/oa?sessionId=${session.oaSessionId}&fullSessionId=${sessionId}`}
-                  className="flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-lg"
-                >
-                  <div className="flex items-center gap-2">
-                    <Code2 className="w-4 h-4 text-blue-500" />
-                    <span className="text-xs font-semibold text-slate-700">Online Assessment</span>
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                </a>
-              ) : (
-                <p className="text-[11px] text-slate-400 px-2">OA not completed</p>
-              )}
-              {session.aiSessionId ? (
-                <a
-                  href={`/dashboard/interview/ai?sessionId=${session.aiSessionId}&fullSessionId=${sessionId}`}
-                  className="flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-lg"
-                >
-                  <div className="flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-blue-500" />
-                    <span className="text-xs font-semibold text-slate-700">AI Technical Round</span>
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                </a>
-              ) : (
-                <p className="text-[11px] text-slate-400 px-2">AI round not completed</p>
-              )}
-            </div>
-
-            <button
-              onClick={handleResetAll}
-              className="w-full flex items-center justify-center gap-1.5 text-xs text-slate-600 border border-[#ECECEC] hover:bg-slate-50 py-2 rounded-lg"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Start New Assessment
-            </button>
-          </div>
-
-          <div className="lg:col-span-3 space-y-6">
-            <div className="bg-white border border-[#ECECEC] rounded-lg p-6">
-              <h3 className="text-sm font-bold text-[#111111] mb-5 border-b border-slate-100 pb-3">
-                Performance Breakdown
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                    Technical
-                  </span>
-                  <span className="text-xl font-extrabold text-slate-800 mt-1 block">
-                    {summary.technicalScore}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                    Problem Solving
-                  </span>
-                  <span className="text-xl font-extrabold text-slate-800 mt-1 block">
-                    {summary.problemSolvingScore}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                    Communication
-                  </span>
-                  <span className="text-xl font-extrabold text-slate-800 mt-1 block">
-                    {summary.communicationScore}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                    Confidence
-                  </span>
-                  <span className="text-xl font-extrabold text-slate-800 mt-1 block">
-                    {summary.confidenceScore}%
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white border border-[#ECECEC] rounded-lg p-6">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-green-600 mb-4 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" /> Strengths
-                </h3>
-                <ul className="space-y-3 text-xs text-slate-600">
-                  {(session.report?.strengths || []).map((str: string, i: number) => (
-                    <li key={i} className="flex gap-2 leading-relaxed">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
-                      <span>{str}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="bg-white border border-[#ECECEC] rounded-lg p-6">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-rose-600 mb-4 flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4" /> Growth Areas
-                </h3>
-                <ul className="space-y-3 text-xs text-slate-600">
-                  {(session.report?.weaknesses || []).map((weak: string, i: number) => (
-                    <li key={i} className="flex gap-2 leading-relaxed">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 flex-shrink-0" />
-                      <span>{weak}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            <div className="bg-white border border-[#ECECEC] rounded-lg p-6">
-              <h3 className="text-xs font-extrabold uppercase tracking-wider text-indigo-600 mb-4 flex items-center gap-1.5">
-                <Award className="w-4 h-4" /> Recommendations
-              </h3>
-              <ul className="space-y-3 text-xs text-slate-600">
-                {(session.report?.recommendations || []).map((rec: string, i: number) => (
-                  <li key={i} className="flex gap-2 leading-relaxed">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 flex-shrink-0" />
-                    <span>{rec}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Round summaries */}
-            {(session.report?.roundSummaries || []).length > 0 && (
-              <div className="bg-white border border-[#ECECEC] rounded-lg p-6">
-                <h3 className="text-sm font-bold text-[#111111] mb-4 border-b border-slate-100 pb-3">
-                  Round Summary
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {session.report.roundSummaries.map((r: any, i: number) => (
-                    <div key={i} className="border border-[#ECECEC] rounded-lg p-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-[#111111]">{r.name}</h4>
-                        <span className="text-sm font-extrabold text-blue-600">{r.score}%</span>
-                      </div>
-                      <p className="text-[11px] text-[#6B7280]">
-                        Attempted {r.attempted} · Correct {r.correct} · Wrong {r.wrong} · Skipped{" "}
-                        {r.skipped}
-                      </p>
-                      <ul className="space-y-1">
-                        {(r.improvements || []).map((imp: string, j: number) => (
-                          <li key={j} className="text-[11px] text-[#6B7280] flex gap-1.5">
-                            <span className="text-amber-500">→</span> {imp}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Per-question / per-section detail */}
-            {(session.report?.sections || []).map((sec: any) => (
-              <div key={sec.id} className="bg-white border border-[#ECECEC] rounded-lg p-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-                  <div>
-                    <h3 className="text-sm font-bold text-[#111111]">{sec.title}</h3>
-                    <p className="text-[11px] text-[#9CA3AF] mt-0.5">{sec.summary}</p>
-                  </div>
-                  <span className="text-lg font-extrabold text-blue-600">{sec.score}%</span>
-                </div>
-                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                  {(sec.items || []).map((item: any, idx: number) => (
-                    <div
-                      key={idx}
-                      className="border border-[#ECECEC] rounded-lg p-3 space-y-1.5 text-xs"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="font-semibold text-[#111111] leading-relaxed">
-                          {idx + 1}. {item.question}
-                        </p>
-                        <span
-                          className={`shrink-0 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                            item.status === "correct" || item.status === "strong"
-                              ? "bg-green-50 text-green-700"
-                              : item.status === "partial" || item.status === "average"
-                                ? "bg-amber-50 text-amber-700"
-                                : item.status === "skipped"
-                                  ? "bg-gray-50 text-gray-500"
-                                  : "bg-rose-50 text-rose-700"
-                          }`}
-                        >
-                          {item.status || `${item.score ?? 0}%`}
-                        </span>
-                      </div>
-                      {item.answer && (
-                        <p className="text-[#6B7280]">
-                          <span className="font-semibold text-[#111111]">Your answer: </span>
-                          {item.answer}
-                        </p>
-                      )}
-                      {item.correctAnswer && item.status !== "correct" && (
-                        <p className="text-green-700">
-                          <span className="font-semibold">Correct: </span>
-                          {item.correctAnswer}
-                        </p>
-                      )}
-                      {item.testCasesPassed != null && (
-                        <p className="text-[#6B7280]">
-                          Test cases: {item.testCasesPassed}/{item.totalTestCases}
-                          {item.language ? ` · ${item.language}` : ""}
-                        </p>
-                      )}
-                      {item.feedback && (
-                        <p className="text-[#6B7280] bg-[#F9FAFB] rounded-md p-2 leading-relaxed">
-                          {item.feedback}
-                        </p>
-                      )}
-                      {item.explanation && item.status === "wrong" && (
-                        <p className="text-[11px] text-[#9CA3AF]">{item.explanation}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+      {isCompleted && session.report && (
+        <InterviewReportView report={formatToUnifiedReport(session, "full")} />
+      )}
+      {isCompleted && !session.report && (
+        <div className="bg-white border border-[#ECECEC] rounded-2xl p-8 text-center">
+          <p className="text-sm text-slate-600">Report is still being prepared. Refresh in a moment.</p>
         </div>
       )}
     </div>

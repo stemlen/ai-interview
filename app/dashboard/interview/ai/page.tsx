@@ -37,8 +37,10 @@ import {
   unlockExamFullscreen,
 } from "@/src/lib/exam-immersive";
 import type { InterviewContext, AIInterviewSession, AIQuestion, AIInterviewReport } from "@/src/types";
+import { InterviewReportView } from "@/src/components/Report/InterviewReportView";
+import { formatToUnifiedReport } from "@/src/lib/reportFormatter";
 
-type ViewType = "config" | "setup" | "permissions" | "lobby" | "in_progress" | "completed" | "report";
+type ViewType = "config" | "setup" | "permissions" | "generating" | "lobby" | "in_progress" | "completed" | "report";
 type InterviewerState = "idle" | "speaking" | "listening" | "thinking";
 
 export default function AIInterviewPage() {
@@ -104,6 +106,7 @@ export default function AIInterviewPage() {
   const lastTabViolationRef = useRef(0);
   const interviewStartedRef = useRef(false);
   const startingSessionRef = useRef(false);
+  const readyFirstQuestionRef = useRef<AIQuestion | null>(null);
   const ttsRequestIdRef = useRef(0);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -222,13 +225,19 @@ export default function AIInterviewPage() {
     window.location.href = "/dashboard/interview";
   }, []);
 
-  // Auto-start lobby countdown when E2E skips permissions
+  // Auto-start: generate questions (or reuse recovered session), then lobby countdown
   useEffect(() => {
     if (view !== "lobby" || !e2eSkipPermsRef.current || autoLobbyStartedRef.current) return;
     if (!context || !user) return;
     autoLobbyStartedRef.current = true;
-    toast.success("Permissions already active — starting AI interview.");
-    startCountdown();
+    toast.success("Permissions already active — preparing AI interview.");
+    if (sessionId && session?.questions?.length) {
+      readyFirstQuestionRef.current =
+        session.questions[session.currentQuestionIndex] || session.questions[0];
+      startCountdown();
+    } else {
+      void prepareAndStartInterview();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, context, user]);
 
@@ -339,7 +348,9 @@ export default function AIInterviewPage() {
           if (activeSession.status === "completed") {
             setView("completed");
           } else if (activeSession.status === "in_progress" || activeSession.status === "not_started") {
-            const lastQuestion = activeSession.questions[activeSession.questions.length - 1];
+            const lastQuestion =
+              activeSession.questions[activeSession.currentQuestionIndex] ||
+              activeSession.questions[activeSession.questions.length - 1];
             setCurrentQuestion(lastQuestion);
             if (proctoring.isReady && proctoring.cameraStream) {
               setCameraStream(proctoring.cameraStream);
@@ -412,11 +423,45 @@ export default function AIInterviewPage() {
     toast.success("All systems diagnostics are stable.");
   };
 
+  /** Pre-generate all questions, then enter the lobby countdown. */
+  const prepareAndStartInterview = async () => {
+    if (!context || !user) return;
+    if (startingSessionRef.current) return;
+    startingSessionRef.current = true;
+
+    try {
+      setView("generating");
+      const res = await fetch("/api/interview/e2e/ai/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context,
+          userId: user.$id
+        })
+      });
+
+      if (!res.ok) throw new Error("Failed to start session.");
+      const data = await res.json();
+
+      setSession(data.session);
+      setSessionId(data.sessionId);
+      setCurrentQuestion(data.session.questions[0]);
+      readyFirstQuestionRef.current = data.session.questions[0];
+      localStorage.setItem("active_ai_interview_id", data.sessionId);
+
+      startCountdown();
+    } catch (err) {
+      startingSessionRef.current = false;
+      autoLobbyStartedRef.current = false;
+      toast.error("Failed to generate interview questions. Please try again.");
+      setView("permissions");
+    }
+  };
+
   const startCountdown = () => {
     setView("lobby");
     setCountdown(5);
     interviewStartedRef.current = false;
-    startingSessionRef.current = false;
 
     // Bind webcam preview to lobby preview
     setTimeout(() => {
@@ -455,52 +500,16 @@ export default function AIInterviewPage() {
       setInterviewTime(prev => prev + 1);
     }, 1000);
 
-    // Initialize or start the actual interview flow
-    if (sessionId) {
-      setView("in_progress");
-      if (session) {
-        const lastQ = session.questions[session.questions.length - 1];
-        setCurrentQuestion(lastQ);
-        setTimeout(() => triggerAIVoice(lastQ.questionText), 1000);
-      }
-    } else {
-      initializeSessionAPI();
+    const firstQ = readyFirstQuestionRef.current;
+    setView("in_progress");
+    if (firstQ) {
+      setCurrentQuestion(firstQ);
+      setTimeout(() => triggerAIVoice(firstQ.questionText), 1000);
     }
   };
 
   const initializeSessionAPI = async () => {
-    if (!context || !user) return;
-    if (startingSessionRef.current) return;
-    startingSessionRef.current = true;
-    try {
-      setInterviewerState("thinking");
-      const res = await fetch("/api/interview/e2e/ai/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          context,
-          userId: user.$id
-        })
-      });
-
-      if (!res.ok) throw new Error("Failed to start session.");
-      const data = await res.json();
-
-      setSession(data.session);
-      setSessionId(data.sessionId);
-      localStorage.setItem("active_ai_interview_id", data.sessionId);
-
-      const firstQ = data.session.questions[0];
-      setCurrentQuestion(firstQ);
-      setView("in_progress");
-
-      // Trigger voice
-      setTimeout(() => triggerAIVoice(firstQ.questionText), 1000);
-    } catch (err) {
-      startingSessionRef.current = false;
-      toast.error("Failed to start AI interview.");
-      setView("setup");
-    }
+    await prepareAndStartInterview();
   };
 
   // Web Recording
@@ -926,10 +935,10 @@ export default function AIInterviewPage() {
       if (updatedSession.status === "completed") {
         await showFinalReport(updatedSession);
       } else {
-        const nextQ = updatedSession.questions[updatedSession.questions.length - 1];
+        const nextQ = updatedSession.questions[updatedSession.currentQuestionIndex];
         setCurrentQuestion(nextQ);
         setInterviewerState("idle");
-        setTimeout(() => triggerAIVoice(nextQ.questionText), 800);
+        setTimeout(() => triggerAIVoice(nextQ.questionText), 500);
       }
     } catch (err) {
       toast.error("Failed to submit answer. Please try again.");
@@ -1210,17 +1219,17 @@ export default function AIInterviewPage() {
   return (
     <div className="fixed inset-0 z-50 w-screen h-screen overflow-auto bg-[#FAFAFA]">
       <ExamFullscreenGate
-        active={view === "lobby" || view === "in_progress" || view === "permissions"}
+        active={view === "lobby" || view === "generating" || view === "in_progress" || view === "permissions"}
         suppress={endingExam || isSubmitting}
       />
       <div className="max-w-full mx-auto px-4 py-4 pb-12 sm:px-6 lg:px-8 min-h-full">
       {/* HEADER SECTION */}
-      {view !== "in_progress" && view !== "lobby" && (
+      {view !== "in_progress" && view !== "lobby" && view !== "generating" && (
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl font-bold text-[#111111] tracking-tight">AI Interview Round</h1>
             <p className="text-[#6B7280] mt-1 text-[13px]">
-              Conduct an automated, proctored mock interview driven by dynamic Gemini AI feedback.
+              Conduct an automated, proctored mock interview driven by dynamic GPT OSS AI feedback.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1472,7 +1481,7 @@ export default function AIInterviewPage() {
                 Run Diagnostics
               </button>
               <button
-                onClick={startCountdown}
+                onClick={prepareAndStartInterview}
                 disabled={!perms.camera || !perms.mic || !perms.screen || !systemChecked}
                 className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition text-sm flex items-center justify-center gap-1.5 shadow-sm"
               >
@@ -1484,11 +1493,42 @@ export default function AIInterviewPage() {
         </div>
       )}
 
+      {/* VIEW: AI GENERATING QUESTIONS */}
+      {view === "generating" && (
+        <div className="max-w-xl mx-auto pt-16">
+          <div className="bg-white border border-[#E5E7EB] rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center mb-6">
+              <Loader2 className="w-7 h-7 text-blue-600 animate-spin" />
+            </div>
+            <h2 className="text-2xl font-bold text-[#111111]">AI is generating your questions</h2>
+            <p className="text-sm text-[#6B7280] mt-2 max-w-md leading-relaxed">
+              Building a full 10-question interview from your resume, job description, and role.
+              Once ready, the live interview runs without pausing to fetch the next question.
+            </p>
+            <div className="mt-8 w-full max-w-sm bg-[#FAFAFA] border border-[#E5E7EB] rounded-xl p-4 text-left space-y-2.5">
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                Analyzing your profile blueprint…
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse [animation-delay:150ms]" />
+                Writing personalized technical questions…
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse [animation-delay:300ms]" />
+                Preparing the proctored interview room…
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-6">This usually takes a few seconds</p>
+          </div>
+        </div>
+      )}
+
       {/* VIEW: LOBBY COUNTDOWN */}
       {view === "lobby" && (
         <div className="max-w-4xl mx-auto space-y-6 pt-8">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-800">Interview Room Initializing</h2>
+            <h2 className="text-lg font-bold text-slate-800">Interview Room Ready</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
             {/* Lobby Preview Feed */}
@@ -1530,8 +1570,8 @@ export default function AIInterviewPage() {
 
             {/* Large Countdown */}
             <div className="bg-white border border-[#E5E7EB] rounded-2xl p-10 shadow-sm text-center flex flex-col items-center justify-center">
-              <span className="text-xs uppercase font-bold tracking-wider text-rose-500 mb-2">AI Interview Starting Soon</span>
-              <h2 className="text-xl font-bold text-[#111111] mb-6">Prepare to engage with the AI Panel</h2>
+              <span className="text-xs uppercase font-bold tracking-wider text-emerald-600 mb-2">Questions ready</span>
+              <h2 className="text-xl font-bold text-[#111111] mb-6">All questions generated — starting soon</h2>
 
               {/* Circular Countdown Ring */}
               <div className="relative w-36 h-36 flex items-center justify-center border-4 border-slate-100 rounded-full mb-6">
@@ -1540,7 +1580,7 @@ export default function AIInterviewPage() {
               </div>
 
               <p className="text-xs text-[#6B7280] leading-relaxed">
-                We are initializing the interview room. This workspace will lock into fullscreen mode automatically.
+                Your personalized question set is locked in. This workspace will enter fullscreen automatically.
               </p>
             </div>
           </div>
@@ -1563,7 +1603,7 @@ export default function AIInterviewPage() {
 
             <div className="flex items-center gap-1.5 bg-[#F9FAFB] px-3 py-1.5 rounded-lg border border-[#ECECEC] text-xs font-medium text-[#6B7280]">
               <Activity className="w-3.5 h-3.5 text-blue-500" />
-              <span>Question {session?.questions.length || 1} / 10</span>
+              <span>Question {(session?.currentQuestionIndex ?? 0) + 1} / {session?.questions.length || 10}</span>
             </div>
 
             <div className="flex items-center gap-2.5">
@@ -1632,7 +1672,7 @@ export default function AIInterviewPage() {
                   {interviewerState === "speaking"
                     ? "AI is speaking..."
                     : interviewerState === "thinking"
-                      ? "Preparing next question..."
+                      ? "Saving your answer..."
                       : "Current Question"}
                 </span>
                 <p className="text-[15px] font-medium leading-relaxed text-[#111111]">
@@ -1676,7 +1716,7 @@ export default function AIInterviewPage() {
                       {isListening
                         ? "Speak clearly — pause for ~5–6 seconds when done and we will auto-advance."
                         : interviewerState === "thinking"
-                          ? "Evaluating your previous answer..."
+                          ? "Loading the next question…"
                           : "Waiting for the interviewer to finish speaking..."}
                     </p>
                   )}
@@ -1869,367 +1909,22 @@ export default function AIInterviewPage() {
 
       {/* VIEW: DETAILED REPORT PANEL */}
       {view === "report" && session?.report && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-
-          {/* Sidebar Navigation */}
-          <div className="lg:col-span-1 space-y-2.5">
-            <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-sm mb-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Evaluation Results</h3>
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-lg">
-                  {session.evaluation?.overallScore}%
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-[#111111]">Overall Rating</h4>
-                  <p className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-full mt-1 inline-block">
-                    Passed
-                  </p>
-                </div>
-              </div>
-            </div>
-
+        <div className="max-w-6xl mx-auto space-y-4">
+          <div className="flex items-center justify-between print:hidden">
             <button
-              onClick={() => setReportTab("overview")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${reportTab === "overview" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
+              onClick={() => setView("completed")}
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
             >
-              <Activity className="w-4 h-4" />
-              Overview Summary
+              ← Back to scorecard
             </button>
-
             <button
-              onClick={() => setReportTab("questions")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${reportTab === "questions" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
+              onClick={() => window.print()}
+              className="text-xs font-semibold text-blue-600 hover:underline"
             >
-              <FileText className="w-4 h-4" />
-              Question Feedback
-            </button>
-
-            <button
-              onClick={() => setReportTab("skills")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${reportTab === "skills" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
-            >
-              <Volume2 className="w-4 h-4" />
-              Strengths & Learning
-            </button>
-
-            <button
-              onClick={() => setReportTab("transcript")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${reportTab === "transcript" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
-            >
-              <RefreshCw className="w-4 h-4" />
-              Interview Transcript
-            </button>
-
-            <button
-              onClick={() => setReportTab("proctor")}
-              className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-2.5 ${reportTab === "proctor" ? "bg-slate-900 text-white" : "bg-white border border-[#E5E7EB] text-slate-700 hover:bg-slate-50"}`}
-            >
-              <Shield className="w-4 h-4" />
-              Proctoring Summary
+              Print / Save PDF
             </button>
           </div>
-
-          {/* Tab Content Display Area */}
-          <div className="lg:col-span-3 space-y-6">
-
-            {/* OVERVIEW SUMMARY TAB */}
-            {reportTab === "overview" && (
-              <div className="space-y-6">
-
-                {/* Circular chart breakdown */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
-                    <h3 className="text-sm font-bold text-[#111111]">Overall Performance</h3>
-                    <button
-                      onClick={() => window.print()}
-                      className="flex items-center gap-1.5 text-xs text-[#2563EB] font-semibold border border-blue-200 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Download Report
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-                    {/* Ring 1 - Overall */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">{session.evaluation?.overallScore}%</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Overall Score</span>
-                      <span className="text-[10px] text-slate-400 mt-1">Excellent</span>
-                    </div>
-
-                    {/* Ring 2 - Tech */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-teal-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">{session.evaluation?.technicalScore}%</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Technical Skills</span>
-                      <span className="text-[10px] text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded-full mt-1">Good</span>
-                    </div>
-
-                    {/* Ring 3 - Comm */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">{session.evaluation?.communicationScore}%</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Communication</span>
-                      <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-full mt-1">Good</span>
-                    </div>
-
-                    {/* Ring 4 - Solve */}
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-20 h-20 flex items-center justify-center border-4 border-slate-100 rounded-full mb-3">
-                        <div className="absolute inset-0 rounded-full border-4 border-amber-500 border-t-transparent"></div>
-                        <span className="text-base font-extrabold text-slate-800">{session.evaluation?.problemSolvingScore}%</span>
-                      </div>
-                      <span className="text-xs font-bold text-slate-700 block">Problem Solving</span>
-                      <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full mt-1">Good</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Video Playback of session */}
-                {videoUrl && (
-                  <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                    <h3 className="text-sm font-bold text-[#111111] mb-4">Interview Recording Playback</h3>
-                    <video
-                      controls
-                      src={videoUrl}
-                      className="w-full rounded-xl bg-black aspect-video border border-slate-200"
-                    />
-                  </div>
-                )}
-
-                {/* Timeline and Stats summary */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-sm font-bold text-[#111111] mb-6 border-b border-slate-100 pb-3">Interview Summary</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <span className="text-xs font-semibold text-[#9CA3AF] block uppercase tracking-wider">Total Questions</span>
-                      <span className="text-lg font-bold text-[#111111] mt-1.5 block">10</span>
-                    </div>
-                    <div>
-                      <span className="text-xs font-semibold text-[#9CA3AF] block uppercase tracking-wider">Answers Submitted</span>
-                      <span className="text-lg font-bold text-[#111111] mt-1.5 block">10</span>
-                    </div>
-                    <div>
-                      <span className="text-xs font-semibold text-[#9CA3AF] block uppercase tracking-wider">Duration</span>
-                      <span className="text-lg font-bold text-[#111111] mt-1.5 block">
-                        {session.report.candidateSummary.duration}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            )}
-
-            {/* QUESTION FEEDBACK TAB */}
-            {reportTab === "questions" && (
-              <div className="space-y-4">
-                {session.report.questionFeedback.map((q, idx) => (
-                  <div key={idx} className="bg-white border border-[#E5E7EB] rounded-2xl p-5 shadow-sm">
-                    <div
-                      onClick={() => setExpandedQuestion(expandedQuestion === q.question ? null : q.question)}
-                      className="flex justify-between items-center cursor-pointer"
-                    >
-                      <div className="flex gap-3">
-                        <span className="w-6 h-6 bg-slate-150 text-slate-800 rounded-full flex items-center justify-center font-bold text-xs">
-                          {idx + 1}
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-800 max-w-xl">{q.question}</h4>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">
-                          Score: {q.score}
-                        </span>
-                        {expandedQuestion === q.question ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                      </div>
-                    </div>
-
-                    {expandedQuestion === q.question && (
-                      <div className="mt-5 border-t border-slate-100 pt-5 space-y-4 text-xs">
-                        <div>
-                          <span className="font-bold text-slate-700 block mb-1.5">Candidate Answer Transcript</span>
-                          <p className="text-slate-600 bg-[#FAFAFA] border border-[#F3F4F6] p-3 rounded-lg leading-relaxed">
-                            {q.answer}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="font-bold text-slate-700 block mb-1.5">Constructive Feedback</span>
-                          <p className="text-slate-600 leading-relaxed">
-                            {q.feedback}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Accuracy</span>
-                            <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.accuracy}/10</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Communication</span>
-                            <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.communication}/10</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Problem Solving</span>
-                            <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.problemSolving}/10</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Confidence</span>
-                            <span className="text-xs font-bold text-slate-800 block mt-1">{q.metrics.confidence}/10</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* STRENGTHS & LEARNING TAB */}
-            {reportTab === "skills" && (
-              <div className="space-y-6">
-
-                {/* Strengths & Weaknesses grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                  {/* Strengths */}
-                  <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-green-600 mb-4 flex items-center gap-1.5">
-                      <Check className="w-4 h-4" /> Strong Areas
-                    </h3>
-                    <ul className="space-y-3 text-xs text-slate-600">
-                      {session.report.strengths.map((str, idx) => (
-                        <li key={idx} className="flex gap-2 items-start">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 shrink-0"></span>
-                          <span>{str}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Weaknesses */}
-                  <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-rose-600 mb-4 flex items-center gap-1.5">
-                      <X className="w-4 h-4" /> Areas for Improvement
-                    </h3>
-                    <ul className="space-y-3 text-xs text-slate-600">
-                      {session.report.weaknesses.map((weak, idx) => (
-                        <li key={idx} className="flex gap-2 items-start">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0"></span>
-                          <span>{weak}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                </div>
-
-                {/* Recommendations */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-4 flex items-center gap-1.5">
-                    <ArrowRight className="w-4 h-4" /> Recommended Learning Path
-                  </h3>
-                  <ul className="space-y-3 text-xs text-slate-600">
-                    {session.report.recommendations.map((rec, idx) => (
-                      <li key={idx} className="flex gap-2.5 items-start">
-                        <span className="w-5 h-5 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span>{rec}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-              </div>
-            )}
-
-            {/* INTERVIEW TRANSCRIPT TAB */}
-            {reportTab === "transcript" && (
-              <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm space-y-6">
-                <h3 className="text-sm font-bold text-[#111111] border-b border-slate-100 pb-3">Complete Transcript</h3>
-
-                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                  {session.report.transcript.map((chat, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex flex-col max-w-[80%] rounded-2xl p-4 text-xs leading-relaxed ${chat.speaker === "AI" ? "bg-slate-50 border border-slate-100 mr-auto text-slate-800" : "bg-blue-600 text-white ml-auto"}`}
-                    >
-                      <div className="flex justify-between items-center gap-4 mb-1.5 font-bold uppercase tracking-wider text-[9px] opacity-75">
-                        <span>{chat.speaker}</span>
-                        <span>{chat.timestamp}</span>
-                      </div>
-                      <p className="font-medium">{chat.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* PROCTORING SUMMARY TAB */}
-            {reportTab === "proctor" && (
-              <div className="space-y-6">
-
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-sm font-bold text-[#111111] mb-6 border-b border-slate-100 pb-3">Proctoring Telemetry</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl">
-                      <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Tab Switches</span>
-                      <span className="text-lg font-bold text-slate-800 block mt-1.5">
-                        {session.report.proctoringSummary.tabSwitches}
-                      </span>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl">
-                      <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Fullscreen Exits</span>
-                      <span className="text-lg font-bold text-slate-800 block mt-1.5">
-                        {session.report.proctoringSummary.fullscreenExits}
-                      </span>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl">
-                      <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">Screen Share Drops</span>
-                      <span className="text-lg font-bold text-slate-800 block mt-1.5">
-                        {session.report.proctoringSummary.screenShareInterruptions}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 border border-[#F3F4F6] p-4 rounded-xl">
-                    <div className={`p-2.5 rounded-lg ${session.report.proctoringSummary.status === "Clean" ? "bg-green-50 text-green-600" : session.report.proctoringSummary.status === "Flagged" ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"}`}>
-                      <Shield className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800">Proctor Status</h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        This session is marked as <span className="font-bold">{session.report.proctoringSummary.status}</span>.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Timeline activity log */}
-                <div className="bg-white border border-[#E5E7EB] rounded-2xl p-6 shadow-sm">
-                  <h3 className="text-sm font-bold text-[#111111] mb-6 border-b border-slate-100 pb-3">Session Timeline</h3>
-                  <div className="relative border-l border-slate-200 pl-4 space-y-6 ml-2 text-xs">
-                    {session.report.timeline.map((log, idx) => (
-                      <div key={idx} className="relative">
-                        <span className="absolute -left-[21px] top-0.5 w-2.5 h-2.5 bg-blue-600 rounded-full border-2 border-white ring-4 ring-blue-50"></span>
-                        <div className="flex gap-4">
-                          <span className="text-[10px] text-slate-400 font-bold tracking-wider">{log.timestamp}</span>
-                          <span className="text-slate-700 font-semibold">{log.label}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-            )}
-
-          </div>
+          <InterviewReportView report={formatToUnifiedReport(session, "ai")} />
         </div>
       )}
 

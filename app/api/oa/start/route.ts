@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { aiService } from "@/src/services/ai.service";
 import { dbService } from "@/src/services/db.service";
+import { fallbackBlueprint } from "@/src/services/offline-fallbacks";
 import type { InterviewSession, InterviewBlueprint } from "@/src/types";
 
 export async function POST(req: Request) {
@@ -14,8 +15,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. Generate Interview Blueprint
-    const blueprint: InterviewBlueprint = await aiService.generateBlueprint(context);
+    // 1. Generate Interview Blueprint with fallback protection
+    const blueprint: InterviewBlueprint = await aiService
+      .generateBlueprint(context)
+      .catch(() => fallbackBlueprint(context));
 
     // 2. Initialize Session ID and structure
     const sessionId = `session-${Math.random().toString(36).substr(2, 9)}`;

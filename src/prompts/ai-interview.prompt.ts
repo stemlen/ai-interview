@@ -2,6 +2,35 @@ import { InterviewBlueprint, AIQuestion, AIInterviewSession } from "../types";
 
 export const aiInterviewPrompts = {
   /**
+   * Pre-generate the full question list before the live video interview starts.
+   */
+  getAIBatchQuestionsPrompt(blueprint: InterviewBlueprint, count: number): string {
+    const role = blueprint.role || "Software Engineer";
+    const experience = blueprint.experienceLevel || "Junior/Mid";
+    const skills = blueprint.skills.join(", ");
+    const projects = blueprint.projects.map((p: any) => `${p.title}: ${p.description}`).join("; ");
+
+    return `You are a Senior Technical Interviewer preparing a complete mock technical interview script in advance for a ${role} position (Experience Level: ${experience}).
+Target Skills: ${skills}
+Highlighted Projects: ${projects}
+
+Generate exactly ${count} interview questions as a complete ordered script.
+Guidelines:
+1. Question 1 should introduce yourself briefly and ask a solid introductory technical question.
+2. Cover different skills/projects across the set — avoid repeating the same sub-topic.
+3. Include a mix of conceptual, practical, debugging, and project/architecture questions.
+4. Progress from foundational to deeper topics.
+5. Keep each question conversational and brief (1-3 sentences).
+6. Do NOT provide answers or multiple choice options.
+
+You MUST respond ONLY with a JSON object in this format:
+{
+  "questions": ["question 1 text", "question 2 text", "... exactly ${count} strings"]
+}
+`;
+  },
+
+  /**
    * Prompt to generate the next question (or follow-up)
    */
   getAIQuestionPrompt(blueprint: InterviewBlueprint, history: AIQuestion[]): string {

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { aiService } from "@/src/services/ai.service";
 import { dbService } from "@/src/services/db.service";
+import {
+  fallbackMCQs,
+  fallbackCodingQuestions,
+  fallbackAptitudeQuestions,
+} from "@/src/services/offline-fallbacks";
 import type { InterviewSession } from "@/src/types";
 
 export async function POST(req: Request) {
@@ -39,12 +44,16 @@ export async function POST(req: Request) {
       });
     }
 
-    // Generate in parallel
-    const [mcqQuestions, codingQuestions, aptitudeQuestions] = await Promise.all([
-      aiService.generateMCQs(session.blueprint),
-      aiService.generateCodingQuestions(session.blueprint),
-      aiService.generateAptitudeQuestions(session.blueprint),
+    // Generate in parallel with fallback protection
+    const [rawMCQs, rawCoding, rawAptitude] = await Promise.all([
+      aiService.generateMCQs(session.blueprint).catch(() => fallbackMCQs(session.blueprint)),
+      aiService.generateCodingQuestions(session.blueprint).catch(() => fallbackCodingQuestions()),
+      aiService.generateAptitudeQuestions(session.blueprint).catch(() => fallbackAptitudeQuestions()),
     ]);
+
+    const mcqQuestions = rawMCQs?.length > 0 ? rawMCQs : fallbackMCQs(session.blueprint);
+    const codingQuestions = rawCoding?.length > 0 ? rawCoding : fallbackCodingQuestions();
+    const aptitudeQuestions = rawAptitude?.length > 0 ? rawAptitude : fallbackAptitudeQuestions();
 
     // Update session
     const updatedSession: InterviewSession = {

@@ -1,6 +1,6 @@
 import type { InterviewSession, OAReport } from "@/src/types";
-import { aiService } from "./ai.service";
 import { dbService } from "./db.service";
+import { buildOAReport } from "./report-engine";
 
 export class ReportService {
   async generateAndSaveReport(session: InterviewSession): Promise<OAReport> {
@@ -8,10 +8,8 @@ export class ReportService {
       throw new Error("Cannot generate assessment report: session is not evaluated yet.");
     }
 
-    // Call AI provider to generate report content
-    const report = await aiService.generateReport(session);
+    const report = await buildOAReport(session);
 
-    // Save report to session
     const updatedSession: InterviewSession = {
       ...session,
       report,
