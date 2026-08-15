@@ -1,103 +1,66 @@
 import type { InterviewContext } from "@/src/types";
+import type { ParsedResume, ParsedJobDescription } from "@/src/ocr";
 
 /**
- * Parses a mock Job Description from a PDF file.
+ * Extracts and structures resume context from an uploaded PDF file using the OCR engine.
  */
-export async function parseJobDescription(file: File): Promise<InterviewContext> {
-  const nameLower = file.name.toLowerCase();
-  
-  // Custom parsing profiles based on filename keywords
-  if (nameLower.includes("mern") || nameLower.includes("react") || nameLower.includes("frontend")) {
-    return {
-      source: "jd",
-      role: "MERN Stack Developer",
-      jd: {
-        company: "Vercel Inc.",
-        experience: "1-3 Years",
-        requiredSkills: ["React", "Next.js", "TypeScript", "Tailwind CSS", "Node.js", "Express"],
-        preferredSkills: ["GraphQL", "Docker", "AWS", "Appwrite"]
-      }
-    };
+export async function parseResume(file: File): Promise<InterviewContext> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("/api/ocr/parse-resume", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || "Failed to extract and parse resume PDF.");
   }
 
-  if (nameLower.includes("backend") || nameLower.includes("node") || nameLower.includes("python") || nameLower.includes("java")) {
-    return {
-      source: "jd",
-      role: "Backend Engineer",
-      jd: {
-        company: "Linear App",
-        experience: "2-5 Years",
-        requiredSkills: ["Node.js", "Express.js", "PostgreSQL", "Redis", "TypeScript", "REST APIs"],
-        preferredSkills: ["Docker", "Kubernetes", "AWS", "gRPC", "Microservices"]
-      }
-    };
-  }
+  const json = await res.json();
+  const resume: ParsedResume = json.resume;
 
-  // Fallback for Job Descriptions
   return {
-    source: "jd",
-    role: "Software Engineer",
-    jd: {
-      company: "Notion Labs",
-      experience: "2+ Years",
-      requiredSkills: ["JavaScript", "TypeScript", "React", "Node.js", "CSS Modules"],
-      preferredSkills: ["System Design", "Cloud Infrastructure", "CI/CD Platforms"]
-    }
+    source: "resume",
+    role: resume.role || "Software Engineer",
+    resume: {
+      name: resume.name || "Candidate",
+      skills: resume.skills || [],
+      projects: resume.projects || [],
+      education: resume.education || "Undergraduate / Graduate Degree",
+    },
   };
 }
 
 /**
- * Parses a mock Resume from a PDF file.
+ * Extracts and structures Job Description context from an uploaded PDF file using the OCR engine.
  */
-export async function parseResume(file: File): Promise<InterviewContext> {
-  const nameLower = file.name.toLowerCase();
+export async function parseJobDescription(file: File): Promise<InterviewContext> {
+  const formData = new FormData();
+  formData.append("file", file);
 
-  if (nameLower.includes("manideep") || nameLower.includes("yelugam")) {
-    return {
-      source: "resume",
-      role: "MERN Stack Developer",
-      resume: {
-        name: "Manideep Yelugam",
-        skills: ["React", "Next.js", "TypeScript", "Tailwind CSS", "Node.js", "Appwrite", "PostgreSQL", "Zod", "Appwrite Cloud"],
-        projects: [
-          "AI Interview Practice Platform (Next.js 15, Appwrite, Tailwind)",
-          "Developer Portfolio Website",
-          "E-commerce SaaS Platform"
-        ],
-        education: "Bachelor of Technology in Computer Science & Engineering"
-      }
-    };
+  const res = await fetch("/api/ocr/parse-jd", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || "Failed to extract and parse Job Description PDF.");
   }
 
-  if (nameLower.includes("john") || nameLower.includes("doe")) {
-    return {
-      source: "resume",
-      role: "Full Stack Developer",
-      resume: {
-        name: "John Doe",
-        skills: ["React", "Next.js", "MongoDB", "TypeScript", "Node.js", "Express", "Tailwind CSS", "Git"],
-        projects: [
-          "AI Interview Platform",
-          "Interactive Portfolio Website",
-          "Real-time Chat Application"
-        ],
-        education: "Bachelor of Science in Computer Science"
-      }
-    };
-  }
+  const json = await res.json();
+  const jd: ParsedJobDescription = json.jd;
 
-  // Fallback for Resumes
   return {
-    source: "resume",
-    role: "Software Engineer",
-    resume: {
-      name: "Engineering Candidate",
-      skills: ["React", "TypeScript", "Node.js", "Git", "REST APIs", "SQL", "HTML5 & CSS3"],
-      projects: [
-        "Task Management Dashboard",
-        "Weather Forecast Application"
-      ],
-      education: "Bachelor of Science in Information Technology"
-    }
+    source: "jd",
+    role: jd.role || "Software Engineer",
+    jd: {
+      company: jd.company || "Hiring Company",
+      experience: jd.experience || "2+ Years",
+      requiredSkills: jd.requiredSkills || [],
+      preferredSkills: jd.preferredSkills || [],
+    },
   };
 }

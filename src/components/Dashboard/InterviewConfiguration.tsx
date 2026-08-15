@@ -144,17 +144,18 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
         parsedData = await parseResume(selectedFile);
       }
 
-      // Add a slight delay for realistic UX transition
-      setTimeout(() => {
-        clearInterval(interval);
-        setContext(parsedData);
-        setStep("preview");
-        toast.success("PDF parsed successfully!");
-      }, 3500);
-    } catch (err) {
+      clearInterval(interval);
+      setContext(parsedData);
+      setStep("preview");
+      toast.success(
+        source === "jd"
+          ? "Job Description parsed successfully!"
+          : `Resume parsed! Extracted profile for ${parsedData.resume?.name || "Candidate"}`
+      );
+    } catch (err: any) {
       clearInterval(interval);
       setStep("upload");
-      toast.error("Failed to parse the PDF document.");
+      toast.error(err.message || "Failed to parse the PDF document.");
     }
   };
 
