@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { loginWithGoogle, loginWithGithub } from "@/src/services/auth.service";
 
-export function LoginCard() {
+export function LoginCard({ onOpenTerms }: { onOpenTerms?: () => void }) {
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
 
   const handleGoogleLogin = async () => {
@@ -40,7 +40,7 @@ export function LoginCard() {
         <button
           onClick={handleGoogleLogin}
           disabled={loadingProvider !== null}
-          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-[#ECECEC] bg-transparent px-5 py-2.5 text-[13px] font-medium text-[#111111] transition-all duration-150 hover:border-[#D4D4D4] hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-[#ECECEC] bg-transparent px-5 py-2.5 text-[13px] font-medium text-[#111111] transition-all duration-150 hover:border-[#D4D4D4] hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
         >
           {loadingProvider === "google" ? (
             <Loader2 className="h-[18px] w-[18px] animate-spin" />
@@ -72,7 +72,7 @@ export function LoginCard() {
         <button
           onClick={handleGithubLogin}
           disabled={loadingProvider !== null}
-          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-[#ECECEC] bg-transparent px-5 py-2.5 text-[13px] font-medium text-[#111111] transition-all duration-150 hover:border-[#D4D4D4] hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-[#ECECEC] bg-transparent px-5 py-2.5 text-[13px] font-medium text-[#111111] transition-all duration-150 hover:border-[#D4D4D4] hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
         >
           {loadingProvider === "github" ? (
             <Loader2 className="h-[18px] w-[18px] animate-spin" />
@@ -96,7 +96,10 @@ export function LoginCard() {
       {/* Terms */}
       <p className="text-[13px] leading-6 text-[#9CA3AF]">
         By signing in you agree to our{" "}
-        <span className="cursor-pointer font-medium text-[#111111] hover:underline">
+        <span
+          onClick={onOpenTerms}
+          className="cursor-pointer font-medium text-[#111111] hover:underline"
+        >
           Terms of Service
         </span>
         .

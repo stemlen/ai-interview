@@ -118,10 +118,10 @@ function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
           </div>
           <button
             onClick={logout}
-            className="p-1.5 rounded-lg hover:bg-[#F7F7F7] transition-colors duration-150 text-[#9CA3AF] hover:text-[#6B7280]"
-            title="More options"
+            className="p-1.5 rounded-lg hover:bg-rose-50 hover:text-rose-600 transition-colors duration-150 text-[#9CA3AF] cursor-pointer"
+            title="Sign out"
           >
-            <MoreVertical className="w-4 h-4" />
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
       </div>
