@@ -6,11 +6,21 @@ import Image from "next/image";
 
 import { useAuth } from "@/src/components/providers/AuthProvider";
 import { LoginCard } from "@/src/components/Auth/LoginCard";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [checked, setChecked] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
 
   useEffect(() => {
     if (!loading) {
@@ -56,14 +66,20 @@ export default function LoginPage() {
             </span>
           </div>
 
-          <button className="text-[13px] font-medium text-[#111111] transition-colors duration-150 hover:text-blue-500">
+          <button
+            onClick={() => {
+              const el = document.getElementById("login-card-container");
+              el?.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="text-[13px] font-medium text-[#111111] transition-colors duration-150 hover:text-blue-500 cursor-pointer"
+          >
             Sign in
           </button>
         </header>
 
         <main className="flex flex-1 justify-center items-center px-6 py-12">
-          <div className="w-full flex items-center justify-center">
-            <LoginCard />
+          <div id="login-card-container" className="w-full flex items-center justify-center">
+            <LoginCard onOpenTerms={() => setTermsOpen(true)} />
           </div>
         </main>
 
@@ -74,11 +90,17 @@ export default function LoginPage() {
           </span>
 
           <div className="flex gap-6">
-            <button className="text-xs text-[#9CA3AF] transition-colors duration-150 hover:text-[#6B7280]">
+            <button
+              onClick={() => setPrivacyOpen(true)}
+              className="text-xs text-[#9CA3AF] transition-colors duration-150 hover:text-[#6B7280] cursor-pointer"
+            >
               Privacy
             </button>
 
-            <button className="text-xs text-[#9CA3AF] transition-colors duration-150 hover:text-[#6B7280]">
+            <button
+              onClick={() => setTermsOpen(true)}
+              className="text-xs text-[#9CA3AF] transition-colors duration-150 hover:text-[#6B7280] cursor-pointer"
+            >
               Terms
             </button>
           </div>
@@ -95,6 +117,62 @@ export default function LoginPage() {
           className="object-cover object-center"
         />
       </div>
+
+      {/* Privacy Dialog */}
+      <Dialog open={privacyOpen} onOpenChange={setPrivacyOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Privacy Policy</DialogTitle>
+            <DialogDescription>
+              How we handle and protect your interview preparation data.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-xs text-[#6B7280] leading-relaxed max-h-72 overflow-y-auto pr-1">
+            <p>
+              <strong>1. Data Collection:</strong> We collect your email and profile name during authentication to maintain your personalized mock assessment history.
+            </p>
+            <p>
+              <strong>2. Interview Records:</strong> Audio, code submissions, and proctoring events during practice rounds are processed in real-time solely to generate AI evaluation metrics and diagnostic feedback.
+            </p>
+            <p>
+              <strong>3. Security:</strong> Your data is encrypted in transit and stored safely within your authenticated user account. We never sell your personal information to third parties.
+            </p>
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button variant="outline" onClick={() => setPrivacyOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Terms Dialog */}
+      <Dialog open={termsOpen} onOpenChange={setTermsOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Terms of Service</DialogTitle>
+            <DialogDescription>
+              Terms governing the use of the Intervue AI platform.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-xs text-[#6B7280] leading-relaxed max-h-72 overflow-y-auto pr-1">
+            <p>
+              <strong>1. Service Purpose:</strong> Intervue AI is an educational simulation tool for practicing technical, behavioral, and online assessments.
+            </p>
+            <p>
+              <strong>2. Fair Use:</strong> Users agree to use the evaluation environment responsibly for interview preparation. Automated scraping or misuse is prohibited.
+            </p>
+            <p>
+              <strong>3. AI Feedback:</strong> Scoring rubrics and feedback are generated by artificial intelligence models to assist your study and skill development.
+            </p>
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button variant="outline" onClick={() => setTermsOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

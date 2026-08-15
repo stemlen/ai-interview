@@ -29,7 +29,7 @@ function sanitizeQuestions(session: InterviewSession) {
 
 export const e2eOAService = {
   async startSession(userId: string, context: InterviewContext): Promise<InterviewSession> {
-    // GPT OSS 20b (30s timeout → local builtin bank)
+    // DeepSeek V4 Flash (30s timeout → local builtin bank)
     const blueprint = await aiService
       .generateBlueprint(context)
       .catch(() => fallbackBlueprint(context));

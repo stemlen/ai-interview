@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     // 1. Compile & run test cases
     const runResult = await judgeService.executeCode(code, language, question);
 
-    // 2. Perform AI code analysis (GPT OSS 20b)
+    // 2. Perform AI code analysis (DeepSeek V4 Flash)
     const feedback = await aiService.evaluateCodeSubmission(
       question,
       code,

@@ -1158,7 +1158,7 @@ export default function AIInterviewPage() {
           <div>
             <h1 className="text-2xl font-bold text-[#111111] tracking-tight">AI Interview Round</h1>
             <p className="text-[#6B7280] mt-1 text-[13px]">
-              Conduct an automated, proctored mock interview driven by dynamic GPT OSS AI feedback.
+              Conduct an automated, proctored mock interview driven by dynamic DeepSeek V4 Flash AI feedback.
             </p>
           </div>
           <div className="flex items-center gap-2">

@@ -72,6 +72,13 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [context, setContext] = useState<InterviewContext | null>(null);
   const [newSkill, setNewSkill] = useState("");
+  const [skillDialogOpen, setSkillDialogOpen] = useState(false);
+  const [prefSkillDialogOpen, setPrefSkillDialogOpen] = useState(false);
+  const [newPrefSkill, setNewPrefSkill] = useState("");
+  const [candSkillDialogOpen, setCandSkillDialogOpen] = useState(false);
+  const [newCandSkill, setNewCandSkill] = useState("");
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [newProject, setNewProject] = useState("");
 
   // Parsing progress steps simulation
   const [parsingStep, setParsingStep] = useState(0);
@@ -137,17 +144,18 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
         parsedData = await parseResume(selectedFile);
       }
 
-      // Add a slight delay for realistic UX transition
-      setTimeout(() => {
-        clearInterval(interval);
-        setContext(parsedData);
-        setStep("preview");
-        toast.success("PDF parsed successfully!");
-      }, 3500);
-    } catch (err) {
+      clearInterval(interval);
+      setContext(parsedData);
+      setStep("preview");
+      toast.success(
+        source === "jd"
+          ? "Job Description parsed successfully!"
+          : `Resume parsed! Extracted profile for ${parsedData.resume?.name || "Candidate"}`
+      );
+    } catch (err: any) {
       clearInterval(interval);
       setStep("upload");
-      toast.error("Failed to parse the PDF document.");
+      toast.error(err.message || "Failed to parse the PDF document.");
     }
   };
 
@@ -591,14 +599,10 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
                             </button>
                           </div>
                         ))}
-                        <Dialog>
-                          <DialogTrigger>
-                            <span
-                              className="flex items-center gap-1 text-xs text-blue-500 font-medium px-2.5 py-0.5 rounded-full border border-dashed border-blue-200 hover:border-blue-300 transition-colors cursor-pointer"
-                            >
-                              <Plus className="w-3 h-3" />
-                              Add
-                            </span>
+                        <Dialog open={skillDialogOpen} onOpenChange={setSkillDialogOpen}>
+                          <DialogTrigger className="flex items-center gap-1 text-xs text-blue-500 font-medium px-2.5 py-0.5 rounded-full border border-dashed border-blue-200 hover:border-blue-300 transition-colors cursor-pointer">
+                            <Plus className="w-3 h-3" />
+                            Add
                           </DialogTrigger>
 
                           <DialogContent className="sm:max-w-md">
@@ -613,13 +617,40 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
                               placeholder="e.g. TypeScript"
                               value={newSkill}
                               onChange={(e) => setNewSkill(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && newSkill.trim()) {
+                                  e.preventDefault();
+                                  updateContextField((prev) => ({
+                                    ...prev,
+                                    jd: {
+                                      ...prev.jd!,
+                                      requiredSkills: [
+                                        ...prev.jd!.requiredSkills,
+                                        newSkill.trim(),
+                                      ],
+                                    },
+                                  }));
+                                  setNewSkill("");
+                                  setSkillDialogOpen(false);
+                                }
+                              }}
                               autoFocus
                             />
 
                             <DialogFooter>
-                              <Button variant="outline">Cancel</Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setNewSkill("");
+                                  setSkillDialogOpen(false);
+                                }}
+                              >
+                                Cancel
+                              </Button>
 
                               <Button
+                                type="button"
                                 onClick={() => {
                                   if (!newSkill.trim()) return;
 
@@ -635,6 +666,7 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
                                   }));
 
                                   setNewSkill("");
+                                  setSkillDialogOpen(false);
                                 }}
                               >
                                 Add Skill
@@ -668,23 +700,74 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
                             </button>
                           </div>
                         ))}
-                        <button
-                          onClick={() => {
-                            const newSkill = prompt("Add Preferred Skill:");
-                            if (newSkill) {
-                              updateContextField((prev) => ({
-                                ...prev,
-                                jd: {
-                                  ...prev.jd!,
-                                  preferredSkills: [...prev.jd!.preferredSkills, newSkill]
+                        <Dialog open={prefSkillDialogOpen} onOpenChange={setPrefSkillDialogOpen}>
+                          <DialogTrigger className="flex items-center gap-0.5 text-xs text-blue-500 font-medium px-2.5 py-0.5 rounded-full border border-dashed border-blue-200 hover:border-blue-300 transition-colors cursor-pointer">
+                            <Plus className="w-3 h-3" /> Add
+                          </DialogTrigger>
+
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>Add Preferred Skill</DialogTitle>
+                              <DialogDescription>
+                                Enter an optional or preferred skill.
+                              </DialogDescription>
+                            </DialogHeader>
+
+                            <Input
+                              placeholder="e.g. Docker, GraphQL"
+                              value={newPrefSkill}
+                              onChange={(e) => setNewPrefSkill(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && newPrefSkill.trim()) {
+                                  e.preventDefault();
+                                  updateContextField((prev) => ({
+                                    ...prev,
+                                    jd: {
+                                      ...prev.jd!,
+                                      preferredSkills: [...prev.jd!.preferredSkills, newPrefSkill.trim()]
+                                    }
+                                  }));
+                                  setNewPrefSkill("");
+                                  setPrefSkillDialogOpen(false);
                                 }
-                              }));
-                            }
-                          }}
-                          className="flex items-center gap-0.5 text-xs text-blue-500 font-medium px-2.5 py-0.5 rounded-full border border-dashed border-blue-200 hover:border-blue-300 transition-colors"
-                        >
-                          <Plus className="w-3 h-3" /> Add
-                        </button>
+                              }}
+                              autoFocus
+                            />
+
+                            <DialogFooter>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setNewPrefSkill("");
+                                  setPrefSkillDialogOpen(false);
+                                }}
+                              >
+                                Cancel
+                              </Button>
+
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  if (!newPrefSkill.trim()) return;
+
+                                  updateContextField((prev) => ({
+                                    ...prev,
+                                    jd: {
+                                      ...prev.jd!,
+                                      preferredSkills: [...prev.jd!.preferredSkills, newPrefSkill.trim()]
+                                    }
+                                  }));
+
+                                  setNewPrefSkill("");
+                                  setPrefSkillDialogOpen(false);
+                                }}
+                              >
+                                Add Skill
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     </div>
                   </div>
@@ -749,23 +832,74 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
                             </button>
                           </div>
                         ))}
-                        <button
-                          onClick={() => {
-                            const newSkill = prompt("Add Skill:");
-                            if (newSkill) {
-                              updateContextField((prev) => ({
-                                ...prev,
-                                resume: {
-                                  ...prev.resume!,
-                                  skills: [...prev.resume!.skills, newSkill]
+                        <Dialog open={candSkillDialogOpen} onOpenChange={setCandSkillDialogOpen}>
+                          <DialogTrigger className="flex items-center gap-0.5 text-xs text-blue-500 font-medium px-2.5 py-0.5 rounded-full border border-dashed border-blue-200 hover:border-blue-300 transition-colors cursor-pointer">
+                            <Plus className="w-3 h-3" /> Add
+                          </DialogTrigger>
+
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>Add Candidate Skill</DialogTitle>
+                              <DialogDescription>
+                                Enter a skill from your experience or resume.
+                              </DialogDescription>
+                            </DialogHeader>
+
+                            <Input
+                              placeholder="e.g. React, Node.js, Python"
+                              value={newCandSkill}
+                              onChange={(e) => setNewCandSkill(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && newCandSkill.trim()) {
+                                  e.preventDefault();
+                                  updateContextField((prev) => ({
+                                    ...prev,
+                                    resume: {
+                                      ...prev.resume!,
+                                      skills: [...prev.resume!.skills, newCandSkill.trim()]
+                                    }
+                                  }));
+                                  setNewCandSkill("");
+                                  setCandSkillDialogOpen(false);
                                 }
-                              }));
-                            }
-                          }}
-                          className="flex items-center gap-0.5 text-xs text-blue-500 font-medium px-2.5 py-0.5 rounded-full border border-dashed border-blue-200 hover:border-blue-300 transition-colors"
-                        >
-                          <Plus className="w-3 h-3" /> Add
-                        </button>
+                              }}
+                              autoFocus
+                            />
+
+                            <DialogFooter>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setNewCandSkill("");
+                                  setCandSkillDialogOpen(false);
+                                }}
+                              >
+                                Cancel
+                              </Button>
+
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  if (!newCandSkill.trim()) return;
+
+                                  updateContextField((prev) => ({
+                                    ...prev,
+                                    resume: {
+                                      ...prev.resume!,
+                                      skills: [...prev.resume!.skills, newCandSkill.trim()]
+                                    }
+                                  }));
+
+                                  setNewCandSkill("");
+                                  setCandSkillDialogOpen(false);
+                                }}
+                              >
+                                Add Skill
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     </div>
 
@@ -785,29 +919,80 @@ export function InterviewConfiguration({ interviewType, onConfigurationComplete 
                                   }
                                 }));
                               }}
-                              className="text-[#9CA3AF] hover:text-red-500 transition-colors p-1"
+                              className="text-[#9CA3AF] hover:text-red-500 transition-colors p-1 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         ))}
-                        <button
-                          onClick={() => {
-                            const newProj = prompt("Add Project Description:");
-                            if (newProj) {
-                              updateContextField((prev) => ({
-                                ...prev,
-                                resume: {
-                                  ...prev.resume!,
-                                  projects: [...prev.resume!.projects, newProj]
+                        <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+                          <DialogTrigger className="w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-[#ECECEC] hover:border-[#D4D4D4] rounded-lg text-xs font-medium text-blue-500 bg-[#F9FAFB]/50 hover:bg-[#F9FAFB] transition-colors cursor-pointer">
+                            <Plus className="w-3.5 h-3.5" /> Add Project
+                          </DialogTrigger>
+
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>Add Key Project / Experience</DialogTitle>
+                              <DialogDescription>
+                                Describe a project or experience you want to highlight.
+                              </DialogDescription>
+                            </DialogHeader>
+
+                            <Input
+                              placeholder="e.g. Built an AI-powered code evaluator with real-time feedback"
+                              value={newProject}
+                              onChange={(e) => setNewProject(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && newProject.trim()) {
+                                  e.preventDefault();
+                                  updateContextField((prev) => ({
+                                    ...prev,
+                                    resume: {
+                                      ...prev.resume!,
+                                      projects: [...prev.resume!.projects, newProject.trim()]
+                                    }
+                                  }));
+                                  setNewProject("");
+                                  setProjectDialogOpen(false);
                                 }
-                              }));
-                            }
-                          }}
-                          className="w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-[#ECECEC] hover:border-[#D4D4D4] rounded-lg text-xs font-medium text-blue-500 bg-[#F9FAFB]/50 hover:bg-[#F9FAFB] transition-colors"
-                        >
-                          <Plus className="w-3.5 h-3.5" /> Add Project
-                        </button>
+                              }}
+                              autoFocus
+                            />
+
+                            <DialogFooter>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setNewProject("");
+                                  setProjectDialogOpen(false);
+                                }}
+                              >
+                                Cancel
+                              </Button>
+
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  if (!newProject.trim()) return;
+
+                                  updateContextField((prev) => ({
+                                    ...prev,
+                                    resume: {
+                                      ...prev.resume!,
+                                      projects: [...prev.resume!.projects, newProject.trim()]
+                                    }
+                                  }));
+
+                                  setNewProject("");
+                                  setProjectDialogOpen(false);
+                                }}
+                              >
+                                Add Project
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     </div>
                   </div>

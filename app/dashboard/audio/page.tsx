@@ -1198,7 +1198,7 @@ export default function AudioRoundPage() {
           <div>
             <h1 className="text-2xl font-bold text-[#111111] tracking-tight">Audio Practice Round</h1>
             <p className="text-[#6B7280] mt-1 text-[13px]">
-              Speak naturally and complete an adaptive voice mock interview. Powered by GPT OSS.
+              Speak naturally and complete an adaptive voice mock interview. Powered by DeepSeek V4 Flash.
             </p>
           </div>
 
@@ -1454,19 +1454,23 @@ export default function AudioRoundPage() {
       {/* VIEW: MICROPHONE PERMISSION SCREEN */}
       {view === "permissions" && (
         <div className="bg-white border border-[#E5E7EB] rounded-2xl p-10 max-w-2xl mx-auto shadow-sm relative overflow-hidden">
-          {/* Notifications area / initials profile mock in upper right */}
+          {/* Notifications area / initials profile in upper right */}
           <div className="absolute top-5 right-6 flex items-center gap-3">
             <button
               onClick={handleExit}
-              className="flex items-center gap-1.5 text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 px-3.5 py-1.5 rounded-lg transition font-semibold"
+              className="flex items-center gap-1.5 text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 px-3.5 py-1.5 rounded-lg transition font-semibold cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" /> Exit
             </button>
-            <button className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400">
+            <button
+              onClick={() => toast.info("Microphone permission required for audio interview.")}
+              className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer"
+              title="Notifications"
+            >
               <Bell className="w-4 h-4" />
             </button>
-            <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-semibold text-[11px] flex items-center justify-center">
-              MY
+            <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-semibold text-[11px] flex items-center justify-center uppercase">
+              {user?.name ? user.name.slice(0, 2) : "U"}
             </div>
           </div>
 

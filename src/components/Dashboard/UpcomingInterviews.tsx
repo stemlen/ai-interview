@@ -1,15 +1,20 @@
+import Link from "next/link";
 import Image from "next/image";
+import { ROUTES } from "@/src/constants";
 
 export function UpcomingInterviews() {
   return (
-    <div className="bg-white rounded-lg border border-[#ECECEC] p-6 h-full">
+    <div className="bg-white rounded-lg border border-[#ECECEC] p-6 h-full flex flex-col justify-between">
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-[16px] font-medium text-[#111111]">
           Upcoming Interviews
         </h3>
-        <button className="text-xs font-medium text-[#6B7280] hover:text-[#111111] px-3 py-1.5 rounded-lg border border-[#ECECEC] hover:border-[#D4D4D4] transition-all duration-150">
+        <Link
+          href={ROUTES.ASSIGNMENTS}
+          className="text-xs font-medium text-[#6B7280] hover:text-[#111111] px-3 py-1.5 rounded-lg border border-[#ECECEC] hover:border-[#D4D4D4] transition-all duration-150"
+        >
           View all
-        </button>
+        </Link>
       </div>
 
       <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -56,9 +61,12 @@ export function UpcomingInterviews() {
           No upcoming interviews scheduled.
         </p>
 
-        <button className="px-5 py-2 bg-[#111111] text-white text-[13px] font-medium rounded-xl hover:bg-[#222222] transition-colors duration-150">
+        <Link
+          href={ROUTES.INTERVIEW}
+          className="px-5 py-2 bg-[#111111] text-white text-[13px] font-medium rounded-xl hover:bg-[#222222] transition-colors duration-150 inline-block"
+        >
           Start a New Interview
-        </button>
+        </Link>
       </div>
     </div>
   );

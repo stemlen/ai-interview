@@ -13,11 +13,6 @@ export const NAV_ITEMS = [
     iconName: "FileText" as const,
   },
   {
-    label: "Full End-to-End Interview",
-    href: "/dashboard/interview",
-    iconName: "Mic" as const,
-  },
-  {
     label: "OA Round",
     href: "/dashboard/oa",
     iconName: "Code2" as const,
@@ -31,6 +26,11 @@ export const NAV_ITEMS = [
     label: "Audio Interview",
     href: "/dashboard/audio",
     iconName: "Volume2" as const,
+  },
+  {
+    label: "Full End-to-End Interview",
+    href: "/dashboard/interview",
+    iconName: "Mic" as const,
   },
 ] as const;
 
