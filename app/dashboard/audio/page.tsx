@@ -1198,7 +1198,7 @@ export default function AudioRoundPage() {
           <div>
             <h1 className="text-2xl font-bold text-[#111111] tracking-tight">Audio Practice Round</h1>
             <p className="text-[#6B7280] mt-1 text-[13px]">
-              Speak naturally and complete an adaptive voice mock interview. Powered by GPT OSS.
+              Speak naturally and complete an adaptive voice mock interview. Powered by DeepSeek V4 Flash.
             </p>
           </div>
 

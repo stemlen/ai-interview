@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { aiInterviewService } from "@/src/services/ai-interview.service";
 
-/** Dedicated E2E AI submit — GPT OSS evaluation (local fallback after 30s). */
+/** Dedicated E2E AI submit — DeepSeek V4 Flash evaluation (local fallback after 30s). */
 export async function POST(req: Request) {
   try {
     const { sessionId, questionId, answerText, violations, endInterview } =

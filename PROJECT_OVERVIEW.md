@@ -34,7 +34,7 @@ The **AI Interview & Assessment Platform** is an enterprise-grade web applicatio
 
 ### **AI & Voice Services**
 * **AI LLM Engine:**
-  * **NVIDIA GPT OSS 20b** (Primary LLM for question generation, evaluation, and conversational responses) via `NVIDIA_API_KEY`.
+  * **DeepSeek V4 Flash** (Primary LLM for question generation, evaluation, and conversational responses) via `DEEPSEEK_API_KEY` or `NVIDIA_API_KEY`.
   * **Google Gemini API** (Fallback/Legacy AI provider) via `GEMINI_API_KEY`.
 * **Voice Processing (STT / TTS):**
   * **Deepgram API** (`DEEPGRAM_API_KEY`) for real-time speech transcription (STT) and voice synthesis (TTS).
@@ -306,7 +306,7 @@ The codebase is structured into 9 core business and technical modules. Below is 
 * **Location:** `src/services/ai-provider.interface.ts`, `src/services/gpt-oss.provider.ts`, `src/services/gemini.provider.ts`, `src/services/offline-fallbacks.ts`
 * **Features Offered:**
   * Modular strategy pattern for seamless AI vendor switching.
-  * Support for NVIDIA GPT-OSS 20b and Google Gemini 1.5/2.0.
+  * Support for DeepSeek V4 Flash (Direct DeepSeek API, NVIDIA NIM, OpenRouter) and Google Gemini.
   * Offline fallback mode (generates mock interview data if external AI APIs are down or keys are missing).
 * **How It Works:**
   All application components depend on the `AIProviderInterface` contract instead of SDK-specific code. Switching `NEXT_PUBLIC_AI_PROVIDER` in `.env.local` instantly swaps the underlying AI provider across the entire system without changing UI code.
@@ -315,7 +315,7 @@ The codebase is structured into 9 core business and technical modules. Below is 
 
 ## 💡 9. Key Architectural Guidelines for Developers
 
-* **Modular AI Providers:** Never hardcode LLM API calls inside components. Always use `AIProviderInterface` (`src/services/ai-provider.interface.ts`). This allows switching between NVIDIA GPT-OSS, Google Gemini, or OpenAI effortlessly.
+* **Modular AI Providers:** Never hardcode LLM API calls inside components. Always use `AIProviderInterface` (`src/services/ai-provider.interface.ts`). This allows switching between DeepSeek V4 Flash, Google Gemini, or OpenAI effortlessly.
 * **Offline Resilience:** Check `src/services/offline-fallbacks.ts` if working on features offline without live LLM/Appwrite API keys.
 * **Appwrite Service Layer:** Avoid calling Appwrite SDK directly in UI pages. Route all database interactions through `src/services/db.service.ts` and `auth.service.ts`.
 * **TypeScript Types:** All data schemas (assessments, questions, candidate responses) are strictly typed in `src/types/`. Always import existing types before creating new ones.

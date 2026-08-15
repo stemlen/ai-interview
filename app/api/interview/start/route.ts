@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // GPT OSS 20b blueprint (30s timeout → local fallback)
+    // DeepSeek V4 Flash blueprint (30s timeout → local fallback)
     const blueprint = await aiService
       .generateBlueprint(context as InterviewContext)
       .catch(() => fallbackBlueprint(context as InterviewContext));

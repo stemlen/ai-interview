@@ -1,6 +1,6 @@
 import type { AptitudeQuestion, CodingQuestion, MCQQuestion } from "@/src/types";
 
-/** Built-in bank used when GPT OSS 20b times out (>30s) or fails. */
+/** Built-in bank used when DeepSeek V4 Flash times out (>30s) or fails. */
 
 export function getBuiltinMCQs(skills: string[] = ["JavaScript", "React", "Node.js"]): MCQQuestion[] {
   const skill = (i: number) => skills[i % skills.length] || "JavaScript";
